@@ -6,15 +6,7 @@ from app.api.authz import in_any_group, require_group_permission
 from app.db.schemas.user import Permission
 
 logger = logging.getLogger(__name__)
-router = APIRouter(
-    prefix="/models",
-    tags=["Models"],
-    dependencies=[
-        Depends(
-            require_group_permission(Permission.upload, group_id_provider=in_any_group)
-        )
-    ],
-)
+router = APIRouter(prefix="/models", tags=["Models"])
 
 
 @router.get("")
@@ -27,7 +19,14 @@ async def list_models():
     return {"available_models": models_sorted}
 
 
-@router.post("")
+@router.post(
+    "",
+    dependencies=[
+        Depends(
+            require_group_permission(Permission.upload, group_id_provider=in_any_group)
+        )
+    ],
+)
 async def upload_model(file: UploadFile):
     # Save the uploaded model file
     if not file.filename.endswith(".pt"):
@@ -39,7 +38,14 @@ async def upload_model(file: UploadFile):
     return {"filename": file.filename}
 
 
-@router.delete("/{model_name}")
+@router.delete(
+    "/{model_name}",
+    dependencies=[
+        Depends(
+            require_group_permission(Permission.upload, group_id_provider=in_any_group)
+        )
+    ],
+)
 async def delete_model(model_name: str):
     model_path = os.path.join(os.environ.get("MODELS_VOLUME_PATH"), f"{model_name}.pt")
     if not os.path.exists(model_path):
