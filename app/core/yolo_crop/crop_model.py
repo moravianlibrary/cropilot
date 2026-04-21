@@ -12,6 +12,7 @@ from app.core.utils import (
 import numpy as np
 
 logger = logging.getLogger(__name__)
+logger.propagate = True
 
 
 crop_model = {}

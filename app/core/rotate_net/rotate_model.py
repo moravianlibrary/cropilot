@@ -6,6 +6,8 @@ from torch.utils.data import DataLoader
 from app.db.schemas.title import Anomaly, Page, Scan
 
 logger = logging.getLogger(__name__)
+logger.propagate = True
+
 rotation_model = None
 
 
