@@ -59,7 +59,7 @@ def format_page_data_list(scans: list[Scan]) -> list[dict]:
             {
                 "_id": str(scan.id),
                 "flags": flags,
-                "pages": jsonable_encoder(pages, exclude={"confidence"}),
+                "pages": jsonable_encoder(pages),
                 "edited": edited,
             }
         )
@@ -80,7 +80,7 @@ def format_predicted(scans: list[Scan]) -> list[dict]:
             {
                 "_id": str(scan.id),
                 "flags": flags,
-                "pages": jsonable_encoder(scan.predicted_pages, exclude={"confidence"}),
+                "pages": jsonable_encoder(scan.predicted_pages),
             }
         )
     return formatted_scans
