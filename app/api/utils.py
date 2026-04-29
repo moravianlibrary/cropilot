@@ -1,19 +1,20 @@
 from io import BytesIO
 import logging
 import os
+import PIL
 from fastapi.encoders import jsonable_encoder
-from app.db.schemas.title import Scan
+from app.db.schemas.title import Scan, Title
 from PIL import Image, ImageOps
 
 
-RETRAIN_VOLUME_PATH = os.getenv("RETRAIN_VOLUME_PATH")
+UPLOAD_VOLUME_PATH = os.getenv("SCANS_VOLUME_PATH")
 logger = logging.getLogger(__name__)
 
 
-def format_page_data_flat(scans: list[Scan]) -> list[dict]:
+def format_page_data_flat(scans: list[Scan], filepaths: list[str]) -> list[dict]:
     """Overrides predicted pages with user edited pages if available, flattens the list."""
     formatted_pages = []
-    for scan in sorted(scans, key=lambda s: s.filename):
+    for scan, original_filepath in zip(scans, filepaths):
         pages = (
             scan.user_edited_pages
             if scan.user_edited_pages is not None
@@ -29,7 +30,7 @@ def format_page_data_flat(scans: list[Scan]) -> list[dict]:
         for page, page_type in zip(pages, page_types):
             formatted_pages.append(
                 {
-                    "filename": scan.filename,
+                    "filename": original_filepath,
                     "xc": page.xc,
                     "yc": page.yc,
                     "width": page.width,
@@ -96,41 +97,16 @@ def resize_image(file_name, max_size: tuple = (160, 160)):
     Returns:
         bytes: Resized image bytes.
     """
-    image = Image.open(file_name)
-    image = ImageOps.exif_transpose(image)
-    image.thumbnail(max_size)
-    output = BytesIO()
-    if image.mode in ("RGBA", "P"):
-        image = image.convert("RGB")
+    PIL.Image.MAX_IMAGE_PIXELS = None  # Disable DecompressionBombError for large images
+
+    with Image.open(file_name) as image:
+        image = ImageOps.exif_transpose(image)
+        image.thumbnail(max_size)
+        output = BytesIO()
+        if image.mode in ("RGBA", "P"):
+            image = image.convert("RGB")
     image.save(output, format="JPEG")
     return output.getvalue()
-
-
-def copy_images_for_retraining(id, filelist: list[str]) -> list[str]:
-    """Copies images to retraining folder, returns new filelist.
-
-    Args:
-        id (str): Title ID to create a subfolder.
-        filelist (list[str]): List of original file paths.
-    Returns:
-        list[str]: List of new file paths in retraining folder.
-    """
-    retrain_path = os.path.join(RETRAIN_VOLUME_PATH, str(id))
-    logger.info(f"Creating retraining directory at {retrain_path}")
-    os.makedirs(retrain_path, exist_ok=True)
-
-    retrain_filelist = []
-    for file_path in filelist:
-        resized_image = resize_image(file_path, max_size=(960, 960))
-
-        # Save as JPEG
-        basename = os.path.basename(file_path)
-        basename = basename.rsplit(".", 1)[0] + ".jpg"
-        with open(os.path.join(retrain_path, basename), "wb") as f:
-            f.write(resized_image)
-        retrain_filelist.append(os.path.join(retrain_path, basename))
-
-    return retrain_filelist
 
 
 def sniff_media_type(sig: bytes) -> str:
@@ -152,3 +128,36 @@ def sniff_media_type(sig: bytes) -> str:
         return "image/tiff"
 
     return "application/octet-stream"
+
+
+def save_scan_to_storage(title_id: str, file, filename: str) -> Scan:
+    content = resize_image(file, (1400, 1400))
+    scan_name = os.path.basename(filename)
+    scan_name = scan_name.rsplit(".", 1)[0]
+
+    # Save scan file to volume storage
+    path = os.path.join(UPLOAD_VOLUME_PATH, title_id, f"{scan_name}.jpg")
+    with open(path, "wb") as f:
+        f.write(content)
+
+    # Create scan object
+    scan = Scan(filename=path, scan_name=scan_name)
+    return scan
+
+
+def remove_title_from_storage(title: Title, db):
+    """Delete all files associated with a title from storage volumes."""
+    scans_path = os.path.join(UPLOAD_VOLUME_PATH, str(title.id))
+    if not os.path.exists(scans_path):
+        return
+
+    files = os.listdir(scans_path)
+    for filename in files:
+        logger.debug(f"Deleting file '{filename}' from title '{title.id}'")
+        os.remove(os.path.join(scans_path, filename))
+
+    os.rmdir(scans_path)
+
+    logger.info(
+        f"Deleted {len(files)} files for title ID {title.id} from '{scans_path}'"
+    )

@@ -15,7 +15,7 @@ maintenance_task = hatchet.workflow(
     name="maintenance", on_crons=["0 2 * * *"]
 )  # Runs once 2 am daily
 
-RETRAIN_VOLUME_PATH = os.getenv("RETRAIN_VOLUME_PATH")
+SCANS_VOLUME_PATH = os.getenv("SCANS_VOLUME_PATH")
 MONGODB_URI = os.getenv("MONGODB_URI")
 
 
@@ -24,7 +24,7 @@ def mongodump(input: EmptyModel, ctx: Context) -> dict[str, str]:
     """Performs a MongoDB dump for maintenance purposes."""
     ctx.log("Starting MongoDB dump.")
 
-    location = os.path.join(RETRAIN_VOLUME_PATH, "mongodump")
+    location = os.path.join(SCANS_VOLUME_PATH, "mongodump")
 
     ret = os.system(f"mongodump --uri={MONGODB_URI} --out={location} --gzip")
     if ret != 0:

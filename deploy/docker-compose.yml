@@ -122,7 +122,6 @@ services:
     image: trinera/smart-crop:1.1.2
     build:
       args:
-        - RETRAIN_VOLUME_PATH=${RETRAIN_VOLUME_PATH}
         - MODELS_VOLUME_PATH=${MODELS_VOLUME_PATH}
         - SCANS_VOLUME_PATH=${SCANS_VOLUME_PATH}
     depends_on:
@@ -140,7 +139,6 @@ services:
       MONGODB_URI: ${MONGODB_URI}
       MONGODB_DB: database_name
       SCANS_VOLUME_PATH: /upload_data
-      RETRAIN_VOLUME_PATH: /retrain_data
       MODELS_VOLUME_PATH: /models
       PWD_SECRET: ${PWD_SECRET}
     healthcheck:
@@ -152,14 +150,13 @@ services:
     restart: unless-stopped
     volumes:
       - scan_data:/upload_data
-      - retrain_data:/retrain_data
       - models:/models
 
   worker:
     image: trinera/smart-crop:1.1.2
     build:
       args:
-        - RETRAIN_VOLUME_PATH=${RETRAIN_VOLUME_PATH}
+        - SCANS_VOLUME_PATH=${SCANS_VOLUME_PATH}
         - MODELS_VOLUME_PATH=${MODELS_VOLUME_PATH}
     depends_on:
       api:
@@ -173,12 +170,11 @@ services:
       ENABLE_TLS: false
       MONGODB_URI: ${MONGODB_URI}
       MONGODB_DB: mydb
-      RETRAIN_VOLUME_PATH: /retrain_data
+      SCANS_VOLUME_PATH: /upload_data
       MODELS_VOLUME_PATH: /models
     restart: unless-stopped
     volumes:
        - scan_data:/upload_data
-       - retrain_data:/retrain_data
        - models:/models
   
   frontend:

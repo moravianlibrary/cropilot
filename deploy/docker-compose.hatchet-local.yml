@@ -5,10 +5,10 @@ services:
     command: postgres -c 'max_connections=200'
     restart: always
     env_file:
-      - .admin-user-env
+      - .admin-user-env.example
     environment:
       POSTGRES_USER: hatchet
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: o5T9P1w1B4xsA3PerOC3Q6BdOBqsPXjiQqePvfFG8YmOGwxTfzdyg1zOZehAt9cE
       POSTGRES_DB: hatchet
     volumes:
       - hatchet_lite_postgres_data:/var/lib/postgresql/data
@@ -28,9 +28,9 @@ services:
       postgres:
         condition: service_healthy
     env_file:
-      - .admin-user-env
+      - .admin-user-env.example
     environment:  # sampled from https://docs.hatchet.run/self-hosting/hatchet-lite
-      DATABASE_URL: ${POSTGRES_URI}
+      DATABASE_URL: postgresql://hatchet:o5T9P1w1B4xsA3PerOC3Q6BdOBqsPXjiQqePvfFG8YmOGwxTfzdyg1zOZehAt9cE@postgres:5432/hatchet?sslmode=disable
       SERVER_AUTH_COOKIE_DOMAIN: localhost
       SERVER_AUTH_COOKIE_INSECURE: "t"
       SERVER_GRPC_BIND_ADDRESS: "0.0.0.0"

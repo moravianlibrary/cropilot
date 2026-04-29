@@ -40,7 +40,7 @@ The production version is stored in docker-compose.yml, and uses 3 environment f
 - *.admin-user-env*: Default login credentials for Hatchet UI and Cropilot. Create it from .admin-user-env.example.
 - *.worker-env*: Contains a JWT token obtained from Hatchet. Generate the file by running `generate-worker-env.sh`.
 
-Inside docker compose itself, there are 3 volumes which need to be set: retrain, upload and models volume. The related env. and build variables then need to point to this location (SCANS_VOLUME_PATH, RETRAIN_VOLUME_PATH, MODELS_VOLUME_PATH)
+Inside docker compose itself, there are 3 volumes which need to be set: retrain, upload and models volume. The related env. and build variables then need to point to this location (SCANS_VOLUME_PATH, MODELS_VOLUME_PATH)
 
 Finally, run the application with:
 

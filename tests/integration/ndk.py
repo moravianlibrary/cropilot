@@ -124,7 +124,7 @@ def main():
         response.raise_for_status()
 
         assert response.json()["state"] == "retrain"
-        files = os.listdir(f"{os.environ['RETRAIN_VOLUME_PATH']}/{title_id}")
+        files = os.listdir(f"{os.environ['SCANS_VOLUME_PATH']}/{title_id}")
         assert set(files) == {
             "1-a0001.jpg",
             "1-a0002.jpg",
