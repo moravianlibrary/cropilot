@@ -3,6 +3,7 @@ import secrets
 import string
 from pydantic import BaseModel, ConfigDict, Field
 from app.db.schemas.base import BaseModelWithId, ObjectIdField
+from app.db.schemas.title import Settings
 
 
 class APIkey(BaseModel):
@@ -23,13 +24,13 @@ class Group(BaseModelWithId):
     created_at: datetime = Field(default_factory=datetime.now)
     modified_at: datetime = Field(default_factory=datetime.now)
     api_key: APIkey = Field(default_factory=lambda: APIkey())
-    default_model: str
+    default_settings: Settings
 
 
 class GroupCreate(BaseModel):
     name: str
     description: str | None = None
-    default_model: str = "default"
+    default_settings: Settings = Field(default_factory=Settings)
 
 
 class GroupUpdate(BaseModel):
@@ -37,4 +38,4 @@ class GroupUpdate(BaseModel):
 
     name: str | None = None
     description: str | None = None
-    default_model: str | None = None
+    default_settings: Settings | None = None

@@ -118,10 +118,13 @@ async def create_public_user(db):
 
 async def copy_default_model():
     """Copy default model to models volume if not already present."""
-    if "default.pt" not in os.listdir(os.environ["MODELS_VOLUME_PATH"]):
+    # if directory crop_model is not present, create it
+    crop_model_path = os.path.join(os.environ["MODELS_VOLUME_PATH"], "crop_model")
+    if not os.path.exists(crop_model_path):
+        os.makedirs(crop_model_path)
+        logger.info(f"Models volume directory '{crop_model_path}' created.")
+
         source = "models/crop-yolov10s-100e-mosaic-best.pt"
-        dest = os.path.join(os.environ["MODELS_VOLUME_PATH"], "default.pt")
+        dest = os.path.join(crop_model_path, "default.pt")
         shutil.copy(source, dest)
-        logger.info(
-            f"Model not found, copied default model from '{source}' to '{dest}'"
-        )
+        logger.info(f"Copied default model from '{source}' to '{dest}'")

@@ -9,10 +9,10 @@ from app.api.limiter import limiter
 from app.api.routes.models import list_models
 from app.api.setup_db import get_db
 from app.api.authz import from_group_id, require_group_permission, require_role
+from app.api.utils import remove_title_from_storage
 from app.db.operations.api import (
     get_user_permissions_in_group,
     get_users_in_group,
-    remove_title,
 )
 from app.db.schemas.group import APIkey, Group, GroupCreate, GroupUpdate
 from app.db.schemas.title import Title
@@ -119,10 +119,10 @@ async def create_group(
 ):
     """Creates a new group."""
     models = await list_models()
-    if group.default_model not in models["available_models"]:
+    if group.default_settings.crop_model not in models["available_models"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Model '{group.default_model}' does not exist",
+            detail=f"Model '{group.default_settings.crop_model}' does not exist",
         )
 
     try:
@@ -325,15 +325,16 @@ async def update_group(
         )
 
     update_data = {k: v for k, v in group.model_dump().items() if v is not None}
-    models = await list_models()
-    if (
-        update_data.get("default_model")
-        and group.default_model not in models["available_models"]
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Model '{group.default_model}' does not exist",
-        )
+    if update_data.get("default_settings"):
+        models = await list_models()
+        if (
+            update_data["default_settings"]["crop_model"]
+            not in models["available_models"]
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Model '{update_data['default_settings']['crop_model']}' does not exist",
+            )
 
     update_data["modified_at"] = datetime.now()
     if update_data:
@@ -370,7 +371,7 @@ async def delete_group(request: Request, group_id: str, db=Depends(get_db)):
     # Cascade - Remove titles in the group
     titles = await db.titles.find({"group_id": ObjectId(group_id)}).to_list(length=None)
     for title in titles:
-        await remove_title(Title(**title), db)
+        await remove_title_from_storage(Title(**title), db)
 
     # Remove group
     await db.groups.delete_one({"_id": ObjectId(group_id)})

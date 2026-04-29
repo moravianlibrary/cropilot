@@ -18,9 +18,13 @@ from app.api.utils import (
     format_page_data_list,
     format_predicted,
     resize_image,
+    save_scan_to_storage,
     sniff_media_type,
 )
-from app.db.operations.api import link_titles_to_group_bulk, remove_title
+from app.db.operations.api import (
+    link_titles_to_group_bulk,
+    set_default_title_params,
+)
 from app.db.schemas.title import (
     Scan,
     ScanUpdate,
@@ -34,7 +38,6 @@ from app.tasks.workflows.smartcrop_workflow import autocrop_workflow
 
 
 UPLOAD_VOLUME_PATH = os.getenv("SCANS_VOLUME_PATH")
-RETRAIN_VOLUME_PATH = os.getenv("RETRAIN_VOLUME_PATH")
 router = APIRouter(prefix="", tags=["Books"])
 logger = logging.getLogger(__name__)
 
@@ -66,26 +69,16 @@ async def create_title(
     try:
         # Create title entry in DB
         created_title = title_data.model_dump(by_alias=True)
-        title_dict = Title(**created_title).model_dump(by_alias=True)
-        title_dict["state"] = TaskState.new
-        title_dict["filelist"] = []
-        if title_dict["external_id"] is None:
-            title_dict["external_id"] = str(title_dict["_id"])
-        if title_dict["model"] is None:
-            logger.info(
-                f"No model specified for title, fetching default model from group settings for group ID: {group_id}"
-            )
-            title_dict["model"] = (
-                await db.groups.find_one(
-                    {"_id": ObjectId(group_id)}, {"default_model": 1}
-                )
-            )["default_model"]
-            logger.debug(
-                f"Set default model '{title_dict['model']}' for title based on group settings"
-            )
-        title_dict["modified_by"] = current_user.email
-        result = await db.titles.insert_one(title_dict)
+        doc = Title.model_validate(created_title)
+        doc = await set_default_title_params(doc, group_id, db)
+        doc.filelist = []
+        doc.modified_by = current_user.email
+        result = await db.titles.insert_one(doc.model_dump(by_alias=True))
+    except Exception as e:
+        logger.error(f"Failed to create title: {e}")
+        raise HTTPException(400, f"Invalid title data: {e}")
 
+    try:
         # Create directory for scans
         os.makedirs(
             os.path.join(UPLOAD_VOLUME_PATH, str(result.inserted_id)), exist_ok=True
@@ -126,30 +119,21 @@ async def upload_scan(
     Returns:
         dict: Title ID and filename of the uploaded scan.
     """
-    content = await scan_data.read()
-    # Convert to JPEG
-    media_type = sniff_media_type(content[:16])
-    if not media_type == "image/jpeg":
-        logger.debug(
-            f"Converting uploaded image '{scan_data.filename}' from {media_type} to JPEG"
-        )
-        content = resize_image(scan_data.file, (1400, 1400))
-        media_type = "image/jpeg"
-        scan_data.filename = scan_data.filename.rsplit(".", 1)[0] + ".jpg"
-
-    # Save scan file to volume storage
-    scan_path = os.path.join(UPLOAD_VOLUME_PATH, title_id, scan_data.filename)
-    with open(scan_path, "wb") as f:
-        f.write(content)
+    # Create scan object
+    scan = save_scan_to_storage(title_id, scan_data.file, scan_data.filename)
 
     # Update title entry in DB
     await db.titles.update_one(
         {"_id": ObjectId(title_id)},
         {
-            "$push": {"filelist": scan_path},
+            "$push": {
+                "filelist": scan.filename,
+                "scans": scan.model_dump(by_alias=True),
+            },
             "$set": {"modified_at": datetime.now(), "modified_by": current_user.email},
         },
     )
+
     logger.info(f"Uploaded scan '{scan_data.filename}' to title '{title_id}'")
     return {"id": title_id, "filename": scan_data.filename}
 
@@ -177,7 +161,7 @@ async def process_title(request: Request, title_id: str, db=Depends(get_db)):
 
     # Schedule task and update state
     try:
-        await autocrop_workflow.aio_run_no_wait(input=Title(**title))
+        await autocrop_workflow.aio_run_no_wait(input=Title.model_validate(title))
         await db.titles.update_one(
             {"_id": ObjectId(title_id)},
             {"$set": {"state": TaskState.scheduled, "modified_at": datetime.now()}},
@@ -418,15 +402,10 @@ async def update_pages(
 async def delete_title(request: Request, title_id: str, db=Depends(get_db)):
     """Deletes a title and all associated saved files."""
     title = await db.titles.find_one({"_id": ObjectId(title_id)})
+    title = Title.model_validate(title)
 
-    # Delete from group
-    await db.groups.update_one(
-        {"_id": ObjectId(title["group_id"])},
-        {"$pull": {"title_ids": ObjectId(title_id)}},
-    )
-    # Delete title from DB
     try:
-        await remove_title(Title(**title), db)
+        await delete_title(title, db)
     except Exception as e:
         logger.error(f"Failed to delete title ID {title_id}: {e}")
         raise HTTPException(500, f"Failed to delete title: {e}")
@@ -479,7 +458,12 @@ async def reset_predictions(
         ),
         Depends(
             require_task_state(
-                [TaskState.ready, TaskState.user_approved, TaskState.new]
+                [
+                    TaskState.ready,
+                    TaskState.user_approved,
+                    TaskState.new,
+                    TaskState.failed,
+                ]
             )
         ),
     ],
@@ -500,9 +484,9 @@ async def update_title(
     update_data = title_data.model_dump(exclude_unset=True, by_alias=True)
     update_data["modified_at"] = datetime.now()
     update_data["modified_by"] = current_user.email
-    if update_data.get("model"):
+    if update_data.get("settings"):
         update_data["state"] = TaskState.new
-        update_data["scans"] = []  # Clear scans if model is updated
+        update_data["scans"] = []  # Clear scans if settings are updated
 
     result = await db.titles.update_one(
         {"_id": ObjectId(title_id)},
@@ -513,11 +497,13 @@ async def update_title(
 
     updated_title = await db.titles.find_one({"_id": ObjectId(title_id)})
 
-    # If model is updated, reset state to new and schedule workflow
-    if update_data.get("model"):
+    # If settings are updated, reset state to new and schedule workflow
+    if update_data.get("settings"):
         logger.info(f"Scheduling workflow for title ID: {title_id}")
         try:
-            await autocrop_workflow.aio_run_no_wait(input=Title(**updated_title))
+            await autocrop_workflow.aio_run_no_wait(
+                input=Title.model_validate(updated_title)
+            )
             await db.titles.update_one(
                 {"_id": ObjectId(title_id)},
                 {"$set": {"state": TaskState.scheduled, "modified_at": datetime.now()}},

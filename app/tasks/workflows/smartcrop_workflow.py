@@ -8,11 +8,10 @@ from pymongo import MongoClient
 from app.core.rotate_net.rotate_model import rotate_pages
 from app.db.operations.hatchet import (
     db_get_state,
+    db_replace_scans,
     db_update_task_state,
-    db_add_scans_bulk,
 )
 from app.db.schemas.title import TaskState, Title
-from app.db.schemas.workflow import WorkflowOutput
 from app.core.anomalies import (
     flag_dimensions_anomalies,
     flag_low_confidence,
@@ -51,55 +50,55 @@ autocrop_workflow = hatchet.workflow(name="autocrop-title-workflow")
 @autocrop_workflow.task(execution_timeout=timedelta(minutes=10))
 def crop(input: Title, ctx: Context):
     """Crops images in the input folder using the specified method."""
+    ctx.log(f"Starting crop task for title {input.id}")
+
+    output = Title.model_validate(ctx.workflow_input, by_name=True)
+
     current_state = db_get_state(input.id, _ensure_db())
     if current_state != TaskState.scheduled:
         ctx.log(f"Input {input.id} is not in a valid state.")
-        ctx.cancel()
+        ctx.aio_cancel()
         return
 
-    ctx.log(f"Starting crop with input: {input}")
     db_update_task_state(input.id, TaskState.in_progress, _ensure_db())
+    output.state = TaskState.in_progress
 
-    result = crop_images(input.filelist, input.model)
+    output.scans = crop_images(output.scans, output.settings.crop_model)
 
-    # Serialize Pydantic objects
-    result = [r.model_dump(by_alias=True) for r in result]
-    return WorkflowOutput(results=result)
+    return output
 
 
 @autocrop_workflow.task(parents=[crop], execution_timeout=timedelta(minutes=10))
 def rotate(input: EmptyModel, ctx: Context):
     """Rotates images based on detected bounding boxes."""
-    previous_result = WorkflowOutput(results=ctx.task_output(crop)["results"])
-    ctx.log(f"Starting rotate for {len(previous_result.results)} pages")
+    ctx.log(f"Starting rotate task for title {ctx.workflow_input['id']}")
 
-    result = rotate_pages(previous_result.results)
+    output = ctx.task_output(crop)
+    output = Title.model_validate(output, by_name=True)
 
-    # Serialize Pydantic objects
-    result = [r.model_dump(by_alias=True) for r in result]
-    return WorkflowOutput(results=result)
+    output.scans = rotate_pages(output.scans, output.settings.rotation_model)
+    return output
 
 
 @autocrop_workflow.task(parents=[rotate], execution_timeout=timedelta(minutes=5))
 def detect_anomalies(input: EmptyModel, ctx: Context):
     """Detects potential mistakes in the processed images."""
-    previous_result = WorkflowOutput(results=ctx.task_output(rotate)["results"])
-    title_id = ctx.workflow_input["id"]
+    output = ctx.task_output(rotate)
+    output = Title.model_validate(output, by_name=True)
 
-    result = flag_missing_pages(previous_result.results)
-    result = flag_low_confidence(result)
-    result = flag_dimensions_anomalies(result)
-    result = flag_prediction_errors(result)
-    result = flag_prediction_overlaps(result)
+    output.scans = flag_missing_pages(output.scans)
+    output.scans = flag_low_confidence(output.scans)
+    output.scans = flag_dimensions_anomalies(output.scans)
+    output.scans = flag_prediction_errors(output.scans)
+    output.scans = flag_prediction_overlaps(output.scans)
 
-    db_add_scans_bulk(title_id, result, _ensure_db())
-    db_update_task_state(title_id, TaskState.ready, _ensure_db())
+    db_replace_scans(output.id, output.scans, _ensure_db())
+    db_update_task_state(output.id, TaskState.ready, _ensure_db())
+    output.state = TaskState.ready
 
     # Serialize Pydantic objects
-    ctx.log(f"Detected {len(result)} scans with anomalies")
-
-    scans_with_anomalies = [r.model_dump(by_alias=True) for r in result]
-    return WorkflowOutput(results=scans_with_anomalies)
+    ctx.log(f"Processed {len(output.scans)} scans and assigned anomalies")
+    return output
 
 
 @autocrop_workflow.on_failure_task()

@@ -13,11 +13,16 @@ from app.api.authz import (
 )
 from app.api.setup_db import get_db
 from app.api.utils import (
-    copy_images_for_retraining,
     format_page_data_flat,
     get_wrong_predictions,
+    remove_title_from_storage,
+    save_scan_to_storage,
 )
-from app.db.operations.api import link_titles_to_group_bulk
+from app.db.operations.api import (
+    delete_title,
+    link_titles_to_group_bulk,
+    set_default_title_params,
+)
 from app.db.schemas.title import Scan, TaskState, Title, TitleCreate
 from starlette.responses import RedirectResponse
 from pymongo.errors import DuplicateKeyError
@@ -28,6 +33,7 @@ router = APIRouter(prefix="/integration", tags=["Integration"])
 logger = logging.getLogger(__name__)
 
 WEBAPP_URL = os.getenv("WEBAPP_FRONTEND_URL")
+UPLOAD_VOLUME_PATH = os.getenv("SCANS_VOLUME_PATH")
 
 
 @router.post(
@@ -40,38 +46,41 @@ WEBAPP_URL = os.getenv("WEBAPP_FRONTEND_URL")
 )
 async def create_title(group_id: str, title_data: TitleCreate, db=Depends(get_db)):
     """Creates a new title and schedules a Hatchet workflow for it."""
-    created_title = title_data.model_dump(by_alias=True)
+    if not ObjectId.is_valid(group_id):
+        raise HTTPException(400, f"ID '{group_id}' is not a valid ObjectId")
 
     # Remove existing title with the same external_id, book is being rescanned
-    title = await db.titles.find_one({"external_id": created_title.get("external_id")})
-    if title and created_title.get("external_id"):
+    title = await db.titles.find_one({"external_id": title_data.external_id})
+    if title and title_data.external_id:
         logger.info(
-            f"Title with external_id {created_title['external_id']} already exists, removing for rescan."
+            f"Title with external_id {title_data.external_id} already exists, removing for rescan."
         )
-        await db.titles.delete_one({"external_id": created_title["external_id"]})
-        await db.groups.update_one(
-            {"_id": title.get("group_id")},
-            {"$pull": {"title_ids": title["_id"]}},
-        )
+        try:
+            title = Title.model_validate(title)
+            await delete_title(title, db)
+        except Exception as e:
+            logger.error(f"Failed to delete title ID {title.id}: {e}")
 
     try:
-        doc = Title(**created_title).model_dump(by_alias=True)
-        if doc["external_id"] is None:
-            doc["external_id"] = str(doc["_id"])
-        if doc["model"] is None:
-            doc["model"] = (
-                await db.groups.find_one(
-                    {"_id": ObjectId(group_id)}, {"default_model": 1}
-                )
-            )["default_model"]
-            logger.debug(
-                f"Set default model '{doc['model']}' for title based on group settings"
-            )
-        await db.titles.insert_one(doc)
+        doc = Title.model_validate(title_data.model_dump(by_alias=True))
+        doc = await set_default_title_params(doc, group_id, db)
 
+        # Create directory for scans
+        os.makedirs(os.path.join(UPLOAD_VOLUME_PATH, str(doc.id)), exist_ok=True)
+
+        # Save all scan images
+        for file in title_data.filelist:
+            logger.info(f"Saving scan {file} for title {title_data.external_id}")
+            # Create scan object
+            scan = save_scan_to_storage(str(doc.id), file, file)
+            logger.info(scan)
+            doc.scans.append(scan)
+
+        result = await db.titles.insert_one(doc.model_dump(by_alias=True))
+        logger.info(f"Inserted title with ID {result.inserted_id} into DB")
         # Assign to the default group
         await link_titles_to_group_bulk(
-            title_ids=[ObjectId(doc["_id"])], group_id=ObjectId(group_id), db=db
+            title_ids=[ObjectId(doc.id)], group_id=ObjectId(group_id), db=db
         )
     except DuplicateKeyError:
         raise HTTPException(400, "Title with this id already exists")
@@ -80,20 +89,20 @@ async def create_title(group_id: str, title_data: TitleCreate, db=Depends(get_db
 
     # Schedule task and update state
     try:
-        await autocrop_workflow.aio_run_no_wait(input=Title(**doc))
+        await autocrop_workflow.aio_run_no_wait(input=doc)
     except grpc.RpcError:
         logger.warning(
-            f"gRPC timeout when scheduling workflow for title {doc['external_id']}"
+            f"gRPC timeout when scheduling workflow for title {doc.external_id}"
         )
         pass  # ignore gRPC timeout, the task will be created anyway
 
     await db.titles.update_one(
-        {"external_id": doc["external_id"]},
+        {"external_id": doc.external_id},
         {"$set": {"state": TaskState.scheduled}},
     )
 
-    logger.info(f"Scheduled workflow for title {doc['external_id']} (id: {doc['_id']})")
-    return {"state": TaskState.scheduled, "id": doc["external_id"]}
+    logger.info(f"Scheduled workflow for title {doc.external_id} (id: {doc.id})")
+    return {"state": TaskState.scheduled, "id": doc.external_id}
 
 
 @router.get(
@@ -149,7 +158,7 @@ async def get_coordinates(external_id: str, db=Depends(get_db)):
     title = await db.titles.find_one({"external_id": external_id})
 
     scans = [Scan(**scan) for scan in title.get("scans", [])]
-    pages = format_page_data_flat(scans)
+    pages = format_page_data_flat(scans, title["filelist"])
 
     logger.info(f"Returning coordinates for title {external_id}, {len(pages)} pages")
     return {
@@ -176,45 +185,32 @@ async def get_coordinates(external_id: str, db=Depends(get_db)):
 async def mark_completed(external_id: str, db=Depends(get_db)):
     """Mark a title as completed."""
     title = await db.titles.find_one({"external_id": external_id})
+    title = Title.model_validate(title)
+    if len(title.scans) == 0:
+        await delete_title(title, db)
+        logger.info(f"Title {external_id} has no scans, skipped.")
+        return {"state": TaskState.completed, "id": external_id}
 
     # Check number of errors from the coordinate prediction model
-    scans = [Scan(**scan) for scan in title.get("scans", [])]
-    scans = sorted(scans, key=lambda s: s.filename)
-    errors = get_wrong_predictions(scans)
-    # If more than 3 pages were edited by the user, save for retraining
-    if len(errors) > 3:
-        # Copy images for retraining, update filepaths
-        retrain_filelist = copy_images_for_retraining(title["_id"], title["filelist"])
-        logger.info(
-            f"Title {external_id} marked for retraining, {len(errors)} pages edited by user. Copied {len(retrain_filelist)} files."
-        )
-        for scan, new_file in zip(scans, retrain_filelist):
-            scan.filename = new_file
-            logger.info(f"Updated scan filename to {new_file}")
+    errors = get_wrong_predictions(title.scans)
 
-        # Replace filepaths and mark for retraining
-        await db.titles.update_one(
-            {"external_id": external_id},
-            {
-                "$set": {
-                    "filelist": retrain_filelist,
-                    "scans": [scan.model_dump(by_alias=True) for scan in scans],
-                    "state": TaskState.retrain,
-                    "modified_at": datetime.now(),
-                }
-            },
-        )
-        return {"state": TaskState.retrain, "id": external_id}
+    if len(errors) / len(title.scans) > 0.1:  # more than 10% of pages were edited
+        state = TaskState.retrain
 
-    else:  # Title is correct, mark as completed
-        await db.titles.update_one(
-            {"external_id": external_id},
-            {
-                "$set": {
-                    "state": TaskState.completed,
-                    "modified_at": datetime.now(),
-                }
-            },
-        )
-        logger.info(f"Title {external_id} marked as completed.")
-        return {"state": TaskState.completed, "id": external_id}
+    else:  # Title is correct, mark as completed, delete scans from upload volume
+        state = TaskState.completed
+        remove_title_from_storage(title, db)
+
+    await db.titles.update_one(
+        {"external_id": external_id},
+        {
+            "$set": {
+                "state": state,
+                "modified_at": datetime.now(),
+            }
+        },
+    )
+    logger.info(
+        f"Title {external_id} marked as {state}. Title contains {len(errors)}/{len(title.scans)} errors."
+    )
+    return {"state": state, "id": external_id}
