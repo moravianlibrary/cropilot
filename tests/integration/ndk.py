@@ -4,9 +4,7 @@ import requests
 
 API_URL = "http://localhost:8000"
 
-
-def main():
-    # Login as admin
+def login_for_token():
     response = requests.post(
         f"{API_URL}/users/login",
         data={
@@ -16,6 +14,11 @@ def main():
     )
     response.raise_for_status()
     token = response.json()["access_token"]
+    return token
+
+def main():
+    # Login as admin
+    token = login_for_token()
 
     # Use the token for subsequent requests
     bearer_headers = {"Authorization": f"Bearer {token}"}
@@ -167,6 +170,9 @@ def main():
     response = requests.delete(f"{API_URL}/groups/{group_id}", headers=bearer_headers)
     response.raise_for_status()
     print("Cleaned up created group and title.")
+
+    scan_directory = f"{os.environ['SCANS_VOLUME_PATH']}/{title_id}"
+    assert not os.path.exists(scan_directory), f"Scan directory {scan_directory} still exists after cleanup."
 
     return True
 

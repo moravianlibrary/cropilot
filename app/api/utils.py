@@ -145,7 +145,7 @@ def save_scan_to_storage(title_id: str, file, filename: str) -> Scan:
     return scan
 
 
-def remove_title_from_storage(title: Title, db):
+def remove_title_from_storage(title: Title):
     """Delete all files associated with a title from storage volumes."""
     scans_path = os.path.join(UPLOAD_VOLUME_PATH, str(title.id))
     if not os.path.exists(scans_path):

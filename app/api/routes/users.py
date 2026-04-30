@@ -126,8 +126,9 @@ async def get_user(request: Request, user_id: str, db=Depends(get_db)):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    user = await add_group_name_to_user_response(User(**user), db)
-    logger.info(f"Fetched user details for user ID: {user.id}")
+
+    user = await add_group_name_to_user_response(User.model_validate(user), db)
+    logger.info(f"Fetched user details for user ID: {user['_id']}")
     return jsonable_encoder(user, exclude=["password"], custom_encoder={ObjectId: str})
 
 
@@ -139,8 +140,8 @@ async def get_user(request: Request, user_id: str, db=Depends(get_db)):
 async def register_user(request: Request, user: UserCreate, db=Depends(get_db)):
     """Register new user. Admin only."""
     try:
-        created_user = user.model_dump(by_alias=True)
-        doc = User(**created_user).model_dump(by_alias=True)
+        created_user = User.model_validate(user.model_dump(by_alias=True))
+        doc = created_user.model_dump(by_alias=True)
         unhashed_password = doc["password"]
         doc["password"] = get_password_hash(unhashed_password)
 
@@ -185,7 +186,7 @@ async def update_user(
         update_data["modified_at"] = datetime.now()
         await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": update_data})
         updated_user = await db.users.find_one({"_id": ObjectId(user_id)})
-        updated_user = await add_group_name_to_user_response(User(**updated_user), db)
+        updated_user = await add_group_name_to_user_response(User.model_validate(updated_user), db)
     except Exception as e:
         logger.error(f"Failed to update user ID {user_id}: {e}")
         raise HTTPException(

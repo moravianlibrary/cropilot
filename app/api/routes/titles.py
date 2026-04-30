@@ -10,7 +10,7 @@ from app.api.authn import get_current_user
 from app.api.authz import (
     from_group_id,
     from_title_id,
-    require_group_permission,
+    require_group_permission, 
     require_task_state,
 )
 from app.api.setup_db import get_db
@@ -24,6 +24,7 @@ from app.api.utils import (
 from app.db.operations.api import (
     link_titles_to_group_bulk,
     set_default_title_params,
+    delete_title_from_db_and_storage,
 )
 from app.db.schemas.title import (
     Scan,
@@ -89,7 +90,7 @@ async def create_title(
         )
     except Exception as e:
         logger.error(f"Failed to create title: {e}")
-        await delete_title(str(result.inserted_id), db)
+        await delete_title_from_db_and_storage(str(result.inserted_id), db)
         raise HTTPException(400, f"Invalid title data: {e}")
     logger.info(f"Created new title with id: {result.inserted_id}")
     return {"id": str(result.inserted_id)}
@@ -405,7 +406,7 @@ async def delete_title(request: Request, title_id: str, db=Depends(get_db)):
     title = Title.model_validate(title)
 
     try:
-        await delete_title(title, db)
+        await delete_title_from_db_and_storage(title, db)
     except Exception as e:
         logger.error(f"Failed to delete title ID {title_id}: {e}")
         raise HTTPException(500, f"Failed to delete title: {e}")

@@ -87,7 +87,7 @@ async def set_default_title_params(title: Title, group_id: str, db) -> Title:
     return title
 
 
-async def delete_title(title: Title, db):
+async def delete_title_from_db_and_storage(title: Title, db):
     """Deletes a title and its associated scans from the database."""
 
     # Delete from group
@@ -96,7 +96,7 @@ async def delete_title(title: Title, db):
         {"$pull": {"title_ids": ObjectId(title.id)}},
     )
     # Delete from storage
-    remove_title_from_storage(title, db)
+    remove_title_from_storage(title)
     # Delete from db
     deleted_title = await db.titles.delete_one({"_id": ObjectId(title.id)})
     logger.info(f"Deleted title from DB: {deleted_title}")

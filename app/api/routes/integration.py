@@ -19,7 +19,7 @@ from app.api.utils import (
     save_scan_to_storage,
 )
 from app.db.operations.api import (
-    delete_title,
+    delete_title_from_db_and_storage,
     link_titles_to_group_bulk,
     set_default_title_params,
 )
@@ -50,19 +50,20 @@ async def create_title(group_id: str, title_data: TitleCreate, db=Depends(get_db
         raise HTTPException(400, f"ID '{group_id}' is not a valid ObjectId")
 
     # Remove existing title with the same external_id, book is being rescanned
-    title = await db.titles.find_one({"external_id": title_data.external_id})
-    if title and title_data.external_id:
+    titles = await db.titles.find({"external_id": title_data.external_id})
+    if len(titles) > 0:
         logger.info(
             f"Title with external_id {title_data.external_id} already exists, removing for rescan."
         )
         try:
-            title = Title.model_validate(title)
-            await delete_title(title, db)
+            for title in titles:
+                title = Title.model_validate(title)
+                await delete_title_from_db_and_storage(title, db)
         except Exception as e:
             logger.error(f"Failed to delete title ID {title.id}: {e}")
 
     try:
-        doc = Title.model_validate(title_data.model_dump(by_alias=True))
+        doc = Title.model_validate(title_data)
         doc = await set_default_title_params(doc, group_id, db)
 
         # Create directory for scans
@@ -187,7 +188,7 @@ async def mark_completed(external_id: str, db=Depends(get_db)):
     title = await db.titles.find_one({"external_id": external_id})
     title = Title.model_validate(title)
     if len(title.scans) == 0:
-        await delete_title(title, db)
+        await delete_title_from_db_and_storage(title, db)
         logger.info(f"Title {external_id} has no scans, skipped.")
         return {"state": TaskState.completed, "id": external_id}
 
@@ -199,7 +200,7 @@ async def mark_completed(external_id: str, db=Depends(get_db)):
 
     else:  # Title is correct, mark as completed, delete scans from upload volume
         state = TaskState.completed
-        remove_title_from_storage(title, db)
+        remove_title_from_storage(title)
 
     await db.titles.update_one(
         {"external_id": external_id},
