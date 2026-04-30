@@ -90,7 +90,7 @@ async def create_title(
         )
     except Exception as e:
         logger.error(f"Failed to create title: {e}")
-        await delete_title_from_db_and_storage(str(result.inserted_id), db)
+        await delete_title_from_db_and_storage(str(result.inserted_id), group_id, db)
         raise HTTPException(400, f"Invalid title data: {e}")
     logger.info(f"Created new title with id: {result.inserted_id}")
     return {"id": str(result.inserted_id)}
@@ -406,7 +406,7 @@ async def delete_title(request: Request, title_id: str, db=Depends(get_db)):
     title = Title.model_validate(title)
 
     try:
-        await delete_title_from_db_and_storage(title, db)
+        await delete_title_from_db_and_storage(str(title.id), str(title.group_id), db)
     except Exception as e:
         logger.error(f"Failed to delete title ID {title_id}: {e}")
         raise HTTPException(500, f"Failed to delete title: {e}")

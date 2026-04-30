@@ -372,7 +372,7 @@ async def delete_group(request: Request, group_id: str, db=Depends(get_db)):
     titles = await db.titles.find({"group_id": ObjectId(group_id)}).to_list(length=None)
     for title in titles:
         title = Title.model_validate(title)
-        remove_title_from_storage(title, db)
+        remove_title_from_storage(str(title.id))
 
     # Remove group
     await db.groups.delete_one({"_id": ObjectId(group_id)})

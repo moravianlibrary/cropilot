@@ -112,16 +112,7 @@ def test_groups_and_users_flow():
             json={
                 "email": test_email,
                 "full_name": f"Pytest User {unique}",
-                "role": "user",
-                "permissions": [
-                    {
-                        "group_id": group_id,
-                        "permission": [
-                            "read_group",
-                            "read_title",
-                        ],
-                    }
-                ],
+                "role": "user"
             },
             headers=headers(),
             timeout=30,
@@ -178,16 +169,6 @@ def test_groups_and_users_flow():
                 "email": test_email,
                 "full_name": f"Updated Pytest User {unique}",
                 "role": "user",
-                "permissions": [
-                    {
-                        "group_id": group_id,
-                        "permission": [
-                            "read_group",
-                            "read_title",
-                            "write",
-                        ],
-                    }
-                ],
             },
             headers=headers(),
             timeout=30,
@@ -261,6 +242,17 @@ def test_groups_and_users_flow():
         )
         assert_ok(api_key_resp)
         print(f"Revoked/recreated API key for group ID: {group_id}")
+
+        # GET /users?group_id=... to verify user is removed from group
+        verify_group_users_resp = requests.get(
+            f"{BASE_URL}/users",
+            params={"group_id": group_id},
+            headers=headers(),
+            timeout=30,
+        )
+        verify_group_users = assert_ok(verify_group_users_resp)
+        assert all(user["_id"] != user_id for user in verify_group_users), "User still in group after removal"
+        print(f"Verified user ID: {user_id} is removed from group ID: {group_id}")
 
     finally:
         if user_id:

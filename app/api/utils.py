@@ -145,19 +145,19 @@ def save_scan_to_storage(title_id: str, file, filename: str) -> Scan:
     return scan
 
 
-def remove_title_from_storage(title: Title):
+def remove_title_from_storage(title_id: str):
     """Delete all files associated with a title from storage volumes."""
-    scans_path = os.path.join(UPLOAD_VOLUME_PATH, str(title.id))
+    scans_path = os.path.join(UPLOAD_VOLUME_PATH, title_id)
     if not os.path.exists(scans_path):
         return
 
     files = os.listdir(scans_path)
     for filename in files:
-        logger.debug(f"Deleting file '{filename}' from title '{title.id}'")
+        logger.debug(f"Deleting file '{filename}' from title '{title_id}'")
         os.remove(os.path.join(scans_path, filename))
 
     os.rmdir(scans_path)
 
     logger.info(
-        f"Deleted {len(files)} files for title ID {title.id} from '{scans_path}'"
+        f"Deleted {len(files)} files for title ID {title_id} from '{scans_path}'"
     )
