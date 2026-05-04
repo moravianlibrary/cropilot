@@ -16,7 +16,6 @@ from app.api.utils import (
     format_page_data_flat,
     get_wrong_predictions,
     remove_title_from_storage,
-    save_scan_to_storage,
 )
 from app.db.operations.api import (
     delete_title_from_db_and_storage,
@@ -27,7 +26,7 @@ from app.db.schemas.title import Scan, TaskState, Title, TitleCreate
 from starlette.responses import RedirectResponse
 from pymongo.errors import DuplicateKeyError
 from app.db.schemas.user import Permission
-from app.tasks.workflows.smartcrop_workflow import autocrop_workflow
+from app.tasks.workflows.integration_workflow import prepare_data_workflow
 
 router = APIRouter(prefix="/integration", tags=["Integration"])
 logger = logging.getLogger(__name__)
@@ -49,14 +48,20 @@ async def create_title(group_id: str, title_data: TitleCreate, db=Depends(get_db
     if not ObjectId.is_valid(group_id):
         raise HTTPException(400, f"ID '{group_id}' is not a valid ObjectId")
 
+    title_data_dict = title_data.model_dump(by_alias=True)
+
     # Remove existing title with the same external_id, book is being rescanned
-    existing_title_ids = [t["_id"] for t in await db.titles.find(
-        {"external_id": title_data.external_id}, {"_id": 1}
-    ).to_list(length=None)]
+    existing_title_ids = [
+        t["_id"]
+        for t in await db.titles.find(
+            {"external_id": title_data_dict["external_id"]}, {"_id": 1}
+        ).to_list(length=None)
+    ]
     if len(existing_title_ids) > 0:
         logger.info(
-            f"Title with external_id {title_data.external_id} already exists, removing for rescan."
+            f"Title with external_id {title_data_dict['external_id']} already exists, removing for rescan."
         )
+        title_data_dict["_id"] = existing_title_ids[0]  # reuse existing ID
         try:
             for title_id in existing_title_ids:
                 await delete_title_from_db_and_storage(str(title_id), group_id, db)
@@ -64,22 +69,12 @@ async def create_title(group_id: str, title_data: TitleCreate, db=Depends(get_db
             logger.error(f"Failed to delete title ID {title_id}: {e}")
 
     try:
-        doc = Title.model_validate(title_data.model_dump(by_alias=True))
+        doc = Title.model_validate(title_data_dict)
         doc = await set_default_title_params(doc, group_id, db)
+        await db.titles.insert_one(doc.model_dump(by_alias=True))
 
         # Create directory for scans
         os.makedirs(os.path.join(UPLOAD_VOLUME_PATH, str(doc.id)), exist_ok=True)
-
-        # Save all scan images
-        for file in title_data.filelist:
-            logger.info(f"Saving scan {file} for title {title_data.external_id}")
-            # Create scan object
-            scan = save_scan_to_storage(str(doc.id), file, file)
-            logger.info(scan)
-            doc.scans.append(scan)
-
-        result = await db.titles.insert_one(doc.model_dump(by_alias=True))
-        logger.info(f"Inserted title with ID {result.inserted_id} into DB")
         # Assign to the default group
         await link_titles_to_group_bulk(
             title_ids=[ObjectId(doc.id)], group_id=ObjectId(group_id), db=db
@@ -91,7 +86,7 @@ async def create_title(group_id: str, title_data: TitleCreate, db=Depends(get_db
 
     # Schedule task and update state
     try:
-        await autocrop_workflow.aio_run_no_wait(input=doc)
+        await prepare_data_workflow.aio_run_no_wait(input=doc)
     except grpc.RpcError:
         logger.warning(
             f"gRPC timeout when scheduling workflow for title {doc.external_id}"
@@ -159,7 +154,7 @@ async def get_coordinates(external_id: str, db=Depends(get_db)):
     """Get crop instructions for all pages."""
     title = await db.titles.find_one({"external_id": external_id})
 
-    scans = [Scan(**scan) for scan in title.get("scans", [])]
+    scans = [Scan.model_validate(scan) for scan in title.get("scans", [])]
     pages = format_page_data_flat(scans, title["filelist"])
 
     logger.info(f"Returning coordinates for title {external_id}, {len(pages)} pages")
