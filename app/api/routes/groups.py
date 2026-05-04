@@ -9,10 +9,10 @@ from app.api.limiter import limiter
 from app.api.routes.models import list_models
 from app.api.setup_db import get_db
 from app.api.authz import from_group_id, require_group_permission, require_role
+from app.api.utils import remove_title_from_storage
 from app.db.operations.api import (
     get_user_permissions_in_group,
     get_users_in_group,
-    remove_title,
 )
 from app.db.schemas.group import APIkey, Group, GroupCreate, GroupUpdate
 from app.db.schemas.title import Title
@@ -96,7 +96,7 @@ async def get_titles(request: Request, group_id: str, db=Depends(get_db)):
             "created_at": 1,
             "modified_at": 1,
             "external_id": 1,
-            "model": 1,
+            "settings": 1,
         },
     ).to_list(None)
 
@@ -119,14 +119,14 @@ async def create_group(
 ):
     """Creates a new group."""
     models = await list_models()
-    if group.default_model not in models["available_models"]:
+    if group.default_settings.crop_model not in models["available_models"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Model '{group.default_model}' does not exist",
+            detail=f"Model '{group.default_settings.crop_model}' does not exist",
         )
 
     try:
-        group = Group(**group.model_dump()).model_dump(by_alias=True)
+        group = Group.model_validate(group.model_dump()).model_dump(by_alias=True)
         result = await db.groups.insert_one(group)
     except Exception as e:
         if "duplicate key error" in str(e).lower():
@@ -325,15 +325,16 @@ async def update_group(
         )
 
     update_data = {k: v for k, v in group.model_dump().items() if v is not None}
-    models = await list_models()
-    if (
-        update_data.get("default_model")
-        and group.default_model not in models["available_models"]
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Model '{group.default_model}' does not exist",
-        )
+    if update_data.get("default_settings"):
+        models = await list_models()
+        if (
+            update_data["default_settings"]["crop_model"]
+            not in models["available_models"]
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Model '{update_data['default_settings']['crop_model']}' does not exist",
+            )
 
     update_data["modified_at"] = datetime.now()
     if update_data:
@@ -370,7 +371,8 @@ async def delete_group(request: Request, group_id: str, db=Depends(get_db)):
     # Cascade - Remove titles in the group
     titles = await db.titles.find({"group_id": ObjectId(group_id)}).to_list(length=None)
     for title in titles:
-        await remove_title(Title(**title), db)
+        title = Title.model_validate(title)
+        remove_title_from_storage(str(title.id))
 
     # Remove group
     await db.groups.delete_one({"_id": ObjectId(group_id)})

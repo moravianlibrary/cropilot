@@ -137,7 +137,7 @@ async def get_current_user(
         else:
             logger.debug("No authentication credentials provided, using public user")
             user = await db.users.find_one({"email": "public@user.cropilot"})
-        return User(**user)
+        return User.model_validate(user)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

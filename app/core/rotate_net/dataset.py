@@ -48,16 +48,18 @@ class PageAngleDataset(Dataset):
         # Load crop coordinates
         img_h, img_w, _ = img.shape
         xc, yc, w, h = self._denormalize_bbox(self.image_bboxes[idx], img_w, img_h)
-        w, h = int(w * 1.05), int(h * 1.05)  # Add 5% padding to bbox
 
         try:
             # Augment images: rotation, translation jitter
-            if self.is_train and random.random() < self.aug_rotate_prob:
-                xc, yc, w, h = self._add_jitter(
-                    xc, yc, w, h, img_w, img_h, jitter_percent=0.05
-                )
-                angle = random.uniform(-self.angle_max, self.angle_max)
-                img = self._rotate_around_center(img, angle, xc, yc)
+            if self.is_train:
+                if random.random() < self.aug_rotate_prob:
+                    xc, yc, w, h = self._add_jitter(
+                        xc, yc, w, h, img_w, img_h, jitter_percent=0.05
+                    )
+                    angle = random.uniform(-self.angle_max, self.angle_max)
+                    img = self._rotate_around_center(img, angle, xc, yc)
+            else:
+                w, h = int(w * 1.05), int(h * 1.05)  # Add 5% padding to bbox
 
             # Convert to bounding box and clamp
             x1, y1, x2, y2 = self._cxywh_to_xyxy(xc, yc, w, h)

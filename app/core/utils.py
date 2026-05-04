@@ -1,6 +1,5 @@
 import logging
 import numpy as np
-import cv2
 
 from app.db.schemas.title import Scan
 
@@ -40,33 +39,6 @@ def cxywh_norm_to_xyxy(
     return round(x1, 4), round(y1, 4), round(x2, 4), round(y2, 4)
 
 
-def cxywh_norm_to_ltrb_rotated(
-    xc: float, yc: float, w: float, h: float, angle: float
-) -> tuple[float, float, float, float]:
-    """Converts bounding box from center x, center y, width, height to rotated box points."""
-    rect = ((xc, yc), (w, h), angle)
-    box = cv2.boxPoints(rect)  # float32
-    top, bottom = box[:, 1].min(), box[:, 1].max()
-    left, right = box[:, 0].min(), box[:, 0].max()
-
-    return float(left), float(top), float(right), float(bottom)
-
-
-def bbox_union(boxes: np.ndarray) -> np.ndarray:
-    """Returns a bounding box that covers all given boxes.
-
-    Args:
-        boxes (numpy.ndarray): Array of bounding boxes [x1, y1, x2, y2].
-    Returns:
-        numpy.ndarray: Updated bounding box.
-    """
-    min_x = np.min(boxes[:, 0])
-    min_y = np.min(boxes[:, 1])
-    max_x = np.max(boxes[:, 2])
-    max_y = np.max(boxes[:, 3])
-    return np.array([min_x, min_y, max_x, max_y], np.int32)
-
-
 def bbox_intersection(
     box: np.ndarray, intersect_with_box: np.ndarray
 ) -> np.ndarray | None:
@@ -96,56 +68,6 @@ def bbox_size(box: np.ndarray) -> float:
         float: area of the bounding box.
     """
     return (box[2] - box[0]) * (box[3] - box[1]) if box is not None else 0
-
-
-def add_margin(box: np.ndarray, margin: tuple = (10, 10)) -> np.ndarray:
-    """Adds a margin to a bounding box.
-
-    Args:
-        box (numpy.ndarray): Bounding box coordinates [x1, y1, x2, y2].
-        margin (tuple): Margin to add to each side.
-    Returns:
-        numpy.ndarray: Updated bounding box.
-    """
-    x1, y1, x2, y2 = box
-    return np.array(
-        [x1 - margin[0], y1 - margin[1], x2 + margin[0], y2 + margin[1]], np.int32
-    )
-
-
-def bbox_from_image_contours(image: np.ndarray) -> np.ndarray:
-    """Extracts the bounding box of the largest contour in an image.
-
-    Args:
-        image (numpy.ndarray): Input image.
-    Returns:
-        numpy.ndarray: Bounding box coordinates [x1, y1, x2, y2].
-    """
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    blur = cv2.GaussianBlur(gray, (5, 5), 0)
-    # Otsu threshold: foreground (book/page/cover) -> white, background -> black
-    _, th = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    # Close small gaps along edges
-    th = cv2.morphologyEx(
-        th,
-        cv2.MORPH_CLOSE,
-        cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7)),
-        iterations=2,
-    )
-    # Keep the largest blob (scanned book region)
-    cnts, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not cnts:
-        return np.array(
-            [0, 0, image.shape[1], image.shape[0]]
-        )  # No contours found, return full image
-    c = max(cnts, key=cv2.contourArea)
-
-    # Cover with a rectangle
-    rect = cv2.minAreaRect(c)
-    box = cv2.boxPoints(rect).astype(int)
-    x1, y1 = box[:, 0].min(), box[:, 1].min()
-    x2, y2 = box[:, 0].max(), box[:, 1].max()
-    return np.array([x1, y1, x2, y2])
 
 
 def merge_overlaps(scan: Scan) -> Scan:

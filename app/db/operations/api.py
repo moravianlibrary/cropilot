@@ -5,10 +5,11 @@ from altair import Title
 from bson import ObjectId
 from fastapi.encoders import jsonable_encoder
 
+from app.api.utils import remove_title_from_storage
+from app.db.schemas.title import Settings
 from app.db.schemas.user import Role, User
 
 UPLOAD_VOLUME_PATH = os.getenv("SCANS_VOLUME_PATH")
-RETRAIN_VOLUME_PATH = os.getenv("RETRAIN_VOLUME_PATH")
 logger = logging.getLogger(__name__)
 
 
@@ -37,7 +38,7 @@ async def get_users_in_group(group_id: ObjectId, db):
     ).to_list(length=None)
 
     for user in users:
-        user["permission"] = await get_user_permissions_in_group(User(**user), group_id)
+        user["permission"] = await get_user_permissions_in_group(User.model_validate(user), group_id)
 
     return jsonable_encoder(
         users,
@@ -55,24 +56,6 @@ async def get_user_permissions_in_group(current_user: User, group_id: ObjectId):
     return None
 
 
-async def remove_title(title: Title, db):
-    """Delete a title and remove it from its group."""
-    # Remove associated scans from volume storage
-    for volume in [UPLOAD_VOLUME_PATH, RETRAIN_VOLUME_PATH]:
-        if os.path.exists(os.path.join(volume, str(title.id))):
-            files = os.listdir(os.path.join(volume, str(title.id)))
-            for filename in files:
-                logger.debug(f"Deleting file '{filename}' from volume '{volume}'")
-                os.remove(os.path.join(volume, str(title.id), filename))
-            os.rmdir(os.path.join(volume, str(title.id)))
-            logger.info(
-                f"Deleted {len(files)} files for title ID {title.id} from '{volume}'"
-            )
-    # Remove from db
-    deleted_title = await db.titles.delete_one({"_id": ObjectId(title.id)})
-    logger.debug(f"Deleted title from DB: {deleted_title}")
-
-
 async def add_group_name_to_user_response(user: User, db) -> dict:
     """Add group names to user's permissions in the response."""
     user_dict = user.model_dump(by_alias=True)
@@ -83,3 +66,37 @@ async def add_group_name_to_user_response(user: User, db) -> dict:
             f"Added group name '{perm['group_name']}' to user '{user.email}' permissions for group ID {perm['group_id']}"
         )
     return user_dict
+
+
+async def set_default_title_params(title: Title, group_id: str, db) -> Title:
+    """Sets default title parameters based on group settings."""
+    if title.external_id is None:
+        title.external_id = str(title.id)
+    # Override title settings with group default if not provided
+    if title.settings is None:
+        settings = (
+            await db.groups.find_one(
+                {"_id": ObjectId(group_id)}, {"default_settings": 1}
+            )
+        )["default_settings"]
+        title.settings = Settings.model_validate(settings)
+        logger.debug(
+            f"Set default crop model '{title.settings.crop_model}' for title based on group settings"
+        )
+
+    return title
+
+
+async def delete_title_from_db_and_storage(title_id: str, group_id: str, db):
+    """Deletes a title and its associated scans from the database."""
+
+    # Delete from group
+    await db.groups.update_one(
+        {"_id": ObjectId(group_id)},
+        {"$pull": {"title_ids": ObjectId(title_id)}},
+    )
+    # Delete from storage
+    remove_title_from_storage(title_id)
+    # Delete from db
+    deleted_title = await db.titles.delete_one({"_id": ObjectId(title_id)})
+    logger.info(f"Deleted title from DB: {deleted_title}")

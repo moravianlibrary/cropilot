@@ -10,6 +10,11 @@ from enum import Enum
 from app.db.schemas.base import BaseModelWithId, ObjectIdField
 
 
+class Settings(BaseModel):
+    crop_model: str = "default"
+    rotation_model: str = "rotate-300e-best"
+
+
 class Anomaly(str, Enum):
     page_count_mismatch = "page_count_mismatch"
     low_confidence = "low_confidence"
@@ -53,6 +58,7 @@ class Page(BaseModelWithId):
 
 class Scan(BaseModelWithId):
     filename: str
+    scan_name: str
     predicted_pages: list[Page] = Field(default_factory=list)
     user_edited_pages: list[Page] | None = None
 
@@ -66,7 +72,7 @@ class TitleCreate(BaseModel):
 
     external_id: str | None = None
     filelist: list[str] = Field(default_factory=list)
-    model: str | None = None
+    settings: Settings | None = None
     metadata: dict | None = None
 
 
@@ -74,13 +80,13 @@ class TitleUpdate(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     external_id: str | None = None
-    model: str | None = None
+    settings: Settings | None = None
 
 
 class Title(BaseModelWithId):
     external_id: str | None = None
     filelist: list[str] = Field(default_factory=list)
-    model: str | None = None
+    settings: Settings | None = None
     created_at: datetime = Field(default_factory=datetime.now)
     modified_at: datetime = Field(default_factory=datetime.now)
     modified_by: str | None = None

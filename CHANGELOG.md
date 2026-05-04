@@ -1,4 +1,25 @@
-# 1.0.1 - 2026-04-03
+# 1.2.0 - 2026-04-05
+
+## Added
+
+New version contains improved hatchet task code, as well as preparation of Settings object passed into the task, which will enable custom processing per group.
+
+## Changes
+
+### Settings
+
+- Hatchet tasks are now spawned with a Settings object. Settings contain info about used models and are a prerequisite to run "custom" tasks per group.
+- To create a group/title with custom model, use `.settings.crop_model` instead of `.model`.
+- For backward compatibility, run [this](https://github.com/moravianlibrary/orezy-backend/blob/main/deploy/scripts/mongo_update1.2.0.js) Mongo script before deploy.
+
+### Faster image loading
+
+- Reworked integration pipeline so Cropilot does not use full resolution images and keeps its own copy of JPGs with max size of 1400px. These copies are created in /integration/create endpoint and cleaned up in /integration/complete. They live in SCANS_VOLUME_PATH directory.
+- Merged RETRAIN_ and SCANS_ volume to one, **RETRAIN_VOLUME_PATH env variable is now deprecated**.
+
+
+
+# 1.1.0 - 2026-04-03
 
 ## Added
 
