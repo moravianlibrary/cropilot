@@ -112,7 +112,7 @@ def test_groups_and_users_flow():
             json={
                 "email": test_email,
                 "full_name": f"Pytest User {unique}",
-                "role": "user"
+                "role": "user",
             },
             headers=headers(),
             timeout=30,
@@ -251,7 +251,9 @@ def test_groups_and_users_flow():
             timeout=30,
         )
         verify_group_users = assert_ok(verify_group_users_resp)
-        assert all(user["_id"] != user_id for user in verify_group_users), "User still in group after removal"
+        assert all(user["_id"] != user_id for user in verify_group_users), (
+            "User still in group after removal"
+        )
         print(f"Verified user ID: {user_id} is removed from group ID: {group_id}")
 
     finally:

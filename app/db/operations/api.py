@@ -38,7 +38,7 @@ async def get_users_in_group(group_id: ObjectId, db):
     ).to_list(length=None)
 
     for user in users:
-        user["permission"] = await get_user_permissions_in_group(User(**user), group_id)
+        user["permission"] = await get_user_permissions_in_group(User.model_validate(user), group_id)
 
     return jsonable_encoder(
         users,
@@ -79,7 +79,7 @@ async def set_default_title_params(title: Title, group_id: str, db) -> Title:
                 {"_id": ObjectId(group_id)}, {"default_settings": 1}
             )
         )["default_settings"]
-        title.settings = Settings(**settings)
+        title.settings = Settings.model_validate(settings)
         logger.debug(
             f"Set default crop model '{title.settings.crop_model}' for title based on group settings"
         )

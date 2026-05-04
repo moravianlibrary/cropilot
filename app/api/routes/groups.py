@@ -96,7 +96,7 @@ async def get_titles(request: Request, group_id: str, db=Depends(get_db)):
             "created_at": 1,
             "modified_at": 1,
             "external_id": 1,
-            "model": 1,
+            "settings": 1,
         },
     ).to_list(None)
 
@@ -126,7 +126,7 @@ async def create_group(
         )
 
     try:
-        group = Group(**group.model_dump()).model_dump(by_alias=True)
+        group = Group.model_validate(group.model_dump()).model_dump(by_alias=True)
         result = await db.groups.insert_one(group)
     except Exception as e:
         if "duplicate key error" in str(e).lower():

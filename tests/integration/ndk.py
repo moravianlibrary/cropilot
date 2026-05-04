@@ -4,6 +4,7 @@ import requests
 
 API_URL = "http://localhost:8000"
 
+
 def login_for_token():
     response = requests.post(
         f"{API_URL}/users/login",
@@ -15,6 +16,7 @@ def login_for_token():
     response.raise_for_status()
     token = response.json()["access_token"]
     return token
+
 
 def main():
     # Login as admin
@@ -172,7 +174,9 @@ def main():
     print("Cleaned up created group and title.")
 
     scan_directory = f"{os.environ['SCANS_VOLUME_PATH']}/{title_id}"
-    assert not os.path.exists(scan_directory), f"Scan directory {scan_directory} still exists after cleanup."
+    assert not os.path.exists(scan_directory), (
+        f"Scan directory {scan_directory} still exists after cleanup."
+    )
 
     return True
 

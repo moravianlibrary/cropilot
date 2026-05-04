@@ -3,7 +3,7 @@ import logging
 import os
 import PIL
 from fastapi.encoders import jsonable_encoder
-from app.db.schemas.title import Scan, Title
+from app.db.schemas.title import Scan
 from PIL import Image, ImageOps
 
 
@@ -60,6 +60,7 @@ def format_page_data_list(scans: list[Scan]) -> list[dict]:
             {
                 "_id": str(scan.id),
                 "flags": flags,
+                "scan_name": scan.scan_name,
                 "pages": jsonable_encoder(pages),
                 "edited": edited,
             }
@@ -81,6 +82,7 @@ def format_predicted(scans: list[Scan]) -> list[dict]:
             {
                 "_id": str(scan.id),
                 "flags": flags,
+                "scan_name": scan.scan_name,
                 "pages": jsonable_encoder(scan.predicted_pages),
             }
         )

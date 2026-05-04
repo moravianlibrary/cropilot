@@ -9,6 +9,7 @@ BASE_URL = os.getenv("CROPILOT_API_URL", "http://localhost:8000").rstrip("/")
 API_KEY = os.getenv("CROPILOT_API_KEY")
 TOKEN = os.getenv("CROPILOT_TOKEN")
 
+
 def login_for_token():
     response = requests.post(
         f"{BASE_URL}/users/login",
@@ -21,19 +22,21 @@ def login_for_token():
     token = response.json()["access_token"]
     return token
 
+
 def create_group():
     response = requests.post(
-            f"{BASE_URL}/groups",
-            json={
-                "name": "Test titles API group",
-                "description": "Group for integration testing",
-            },
-            headers=headers(),
-        )
+        f"{BASE_URL}/groups",
+        json={
+            "name": "Test titles API group",
+            "description": "Group for integration testing",
+        },
+        headers=headers(),
+    )
     response.raise_for_status()
     group_id = response.json()["id"]
     print(f"Created group with ID: {group_id}")
     return group_id
+
 
 def headers():
     if API_KEY:
@@ -65,8 +68,10 @@ def tiny_png_bytes():
         b"\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
     )
 
+
 TOKEN = login_for_token()
 GROUP_ID = create_group()
+
 
 def test_books_endpoints_flow():
     external_id = f"pytest-{uuid.uuid4()}"
@@ -136,13 +141,21 @@ def test_books_endpoints_flow():
         assert isinstance(scans, list)
         scan_id = None
         if scans:
-            scan_id = scans[0].get("_id") or scans[0].get("id") or scans[0].get("scan_id")
+            scan_id = (
+                scans[0].get("_id") or scans[0].get("id") or scans[0].get("scan_id")
+            )
 
         # fallback from upload response if API returns scan id there
         if not scan_id and isinstance(upload_data, dict):
-            scan_id = upload_data.get("scan_id") or upload_data.get("_id") or upload_data.get("id")
+            scan_id = (
+                upload_data.get("scan_id")
+                or upload_data.get("_id")
+                or upload_data.get("id")
+            )
 
-        assert scan_id, f"Could not determine scan_id from scans={scans}, upload={upload_data}"
+        assert scan_id, (
+            f"Could not determine scan_id from scans={scans}, upload={upload_data}"
+        )
 
         # GET /{title_id}/scans?scan_id=...
         scan_by_id_resp = requests.get(
@@ -212,9 +225,7 @@ def test_books_endpoints_flow():
         # PATCH /{title_id}
         update_resp = requests.patch(
             f"{BASE_URL}/{title_id}",
-            json={
-                "external_id": external_id + "-updated"
-            },
+            json={"external_id": external_id + "-updated"},
             headers=headers(),
             timeout=30,
         )
@@ -246,8 +257,10 @@ def test_books_endpoints_flow():
         response.raise_for_status()
 
         scan_directory = f"{os.environ['SCANS_VOLUME_PATH']}/{title_id}"
-        assert not os.path.exists(scan_directory), f"Scan directory {scan_directory} still exists after cleanup."
-    
+        assert not os.path.exists(scan_directory), (
+            f"Scan directory {scan_directory} still exists after cleanup."
+        )
+
     return True
 
 

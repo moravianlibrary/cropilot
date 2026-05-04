@@ -10,7 +10,7 @@ from app.api.authn import get_current_user
 from app.api.authz import (
     from_group_id,
     from_title_id,
-    require_group_permission, 
+    require_group_permission,
     require_task_state,
 )
 from app.api.setup_db import get_db
@@ -219,7 +219,7 @@ async def get_scans(title_id: str, scan_id: str | None = None, db=Depends(get_db
     else:
         title = await db.titles.find_one({"_id": ObjectId(title_id)})
 
-    scans = [Scan(**scan) for scan in title.get("scans", [])]
+    scans = [Scan.model_validate(scan) for scan in title.get("scans", [])]
     scans = sorted(scans, key=lambda s: s.filename)
     title["scans"] = format_page_data_list(scans)
     title = jsonable_encoder(
@@ -250,7 +250,7 @@ async def get_predicted_pages(request: Request, title_id: str, db=Depends(get_db
     """
     title = await db.titles.find_one({"_id": ObjectId(title_id)})
 
-    scans = [Scan(**scan) for scan in title.get("scans", [])]
+    scans = [Scan.model_validate(scan) for scan in title.get("scans", [])]
     scans = sorted(scans, key=lambda s: s.filename)
     title["scans"] = format_predicted(scans)
     title = jsonable_encoder(
