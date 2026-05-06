@@ -178,6 +178,10 @@ def main():
         f"Scan directory {scan_directory} still exists after cleanup."
     )
 
+    # Check if title is deleted
+    response = requests.get(f"{API_URL}/{title_id}/scans", headers=headers)
+    assert response.status_code == 404, "Title was not deleted successfully."
+
     return True
 
 

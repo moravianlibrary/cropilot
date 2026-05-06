@@ -9,8 +9,8 @@ from app.api.limiter import limiter
 from app.api.routes.models import list_models
 from app.api.setup_db import get_db
 from app.api.authz import from_group_id, require_group_permission, require_role
-from app.api.utils import remove_title_from_storage
 from app.db.operations.api import (
+    delete_title_from_db_and_storage,
     get_user_permissions_in_group,
     get_users_in_group,
 )
@@ -372,7 +372,7 @@ async def delete_group(request: Request, group_id: str, db=Depends(get_db)):
     titles = await db.titles.find({"group_id": ObjectId(group_id)}).to_list(length=None)
     for title in titles:
         title = Title.model_validate(title)
-        remove_title_from_storage(str(title.id))
+        await delete_title_from_db_and_storage(str(title.id), group_id, db)
 
     # Remove group
     await db.groups.delete_one({"_id": ObjectId(group_id)})
