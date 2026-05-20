@@ -2,7 +2,7 @@
 
 from datetime import timedelta
 import logging
-from app.tasks.workflows.smartcrop_workflow import autocrop_workflow
+from app.tasks.workflows.predict_workflow import predict_workflow
 
 from app.api.utils import save_scan_to_storage
 from app.db.operations.hatchet import (
@@ -17,14 +17,14 @@ from hatchet_sdk import (
     EmptyModel,
 )
 
-from app.tasks.workflows.smartcrop_workflow import _ensure_db
+from app.tasks.workflows.predict_workflow import _ensure_db
 
 
 logger = logging.getLogger(__name__)
-prepare_data_workflow = hatchet.workflow(name="prepare-data-workflow")
+preprocess_workflow = hatchet.workflow(name="preprocess-workflow")
 
 
-@prepare_data_workflow.task(execution_timeout=timedelta(minutes=10))
+@preprocess_workflow.task(execution_timeout=timedelta(minutes=10))
 def upload_scans(input: Title, ctx: Context):
     """Crops images in the input folder using the specified method."""
     ctx.log(f"Starting data preparation task for title {input.id}")
@@ -41,10 +41,10 @@ def upload_scans(input: Title, ctx: Context):
     db_replace_scans(input.id, input.scans, _ensure_db())
 
     # Run main task
-    autocrop_workflow.run_no_wait(input=input)
+    predict_workflow.run_no_wait(input=input)
 
 
-@prepare_data_workflow.on_failure_task()
+@preprocess_workflow.on_failure_task()
 def mark_as_failed(input: EmptyModel, ctx: Context):
     """Handles errors by updating the task state to failed."""
     title_id = ctx.workflow_input["id"]

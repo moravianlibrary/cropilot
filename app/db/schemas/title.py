@@ -12,7 +12,7 @@ from app.db.schemas.base import BaseModelWithId, ObjectIdField
 
 class Settings(BaseModel):
     crop_model: str = "default"
-    rotation_model: str = "rotate-300e-best"
+    rotation_model: str = "text"
 
 
 class Anomaly(str, Enum):

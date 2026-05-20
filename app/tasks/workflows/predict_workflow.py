@@ -44,10 +44,10 @@ def _ensure_db():
 
 
 logger = logging.getLogger(__name__)
-autocrop_workflow = hatchet.workflow(name="autocrop-title-workflow")
+predict_workflow = hatchet.workflow(name="predict-workflow")
 
 
-@autocrop_workflow.task(execution_timeout=timedelta(minutes=10))
+@predict_workflow.task(execution_timeout=timedelta(minutes=10))
 def crop(input: Title, ctx: Context):
     """Crops images in the input folder using the specified method."""
     ctx.log(f"Starting crop task for title {input.id}")
@@ -57,8 +57,7 @@ def crop(input: Title, ctx: Context):
     current_state = db_get_state(input.id, _ensure_db())
     if current_state != TaskState.scheduled:
         ctx.log(f"Input {input.id} is not in a valid state.")
-        ctx.aio_cancel()
-        return
+        raise ValueError(f"Input {input.id} is not in a valid state for cropping.")
 
     db_update_task_state(input.id, TaskState.in_progress, _ensure_db())
     output.state = TaskState.in_progress
@@ -68,7 +67,7 @@ def crop(input: Title, ctx: Context):
     return output
 
 
-@autocrop_workflow.task(parents=[crop], execution_timeout=timedelta(minutes=10))
+@predict_workflow.task(parents=[crop], execution_timeout=timedelta(minutes=10))
 def rotate(input: EmptyModel, ctx: Context):
     """Rotates images based on detected bounding boxes."""
     ctx.log(f"Starting rotate task for title {ctx.workflow_input['id']}")
@@ -80,7 +79,7 @@ def rotate(input: EmptyModel, ctx: Context):
     return output
 
 
-@autocrop_workflow.task(parents=[rotate], execution_timeout=timedelta(minutes=5))
+@predict_workflow.task(parents=[rotate], execution_timeout=timedelta(minutes=5))
 def detect_anomalies(input: EmptyModel, ctx: Context):
     """Detects potential mistakes in the processed images."""
     output = ctx.task_output(rotate)
@@ -101,7 +100,7 @@ def detect_anomalies(input: EmptyModel, ctx: Context):
     return output
 
 
-@autocrop_workflow.on_failure_task()
+@predict_workflow.on_failure_task()
 def mark_as_failed(input: EmptyModel, ctx: Context):
     """Handles errors by updating the task state to failed."""
     title_id = ctx.workflow_input["id"]

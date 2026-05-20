@@ -9,16 +9,21 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/models", tags=["Models"])
 
 CROP_MODEL_PATH = os.path.join(os.environ.get("MODELS_VOLUME_PATH"), "crop_model")
+ROTATION_MODEL_PATH = os.path.join(os.environ.get("MODELS_VOLUME_PATH"), "rotation_model")
 
 
 @router.get("")
 async def list_models():
-    models = os.listdir(CROP_MODEL_PATH)
-    # remove .pt extension
-    models = [model[:-3] for model in models if model.endswith(".pt")]
-    models_sorted = [models.pop(models.index("default"))] + sorted(models)
-    logger.info(f"Listed {len(models_sorted)} models: {models_sorted}")
-    return {"available_models": models_sorted}
+    models_dict = {}
+    for path, ext, name in [(CROP_MODEL_PATH, ".pt", "crop_models"), (ROTATION_MODEL_PATH, ".pth", "rotation_models")]:
+
+        models = os.listdir(path)
+        # remove .pt extension
+        models = [model[:-len(ext)] for model in models if model.endswith(ext)]
+        models_sorted = [models.pop(models.index("default"))] + sorted(models)
+        logger.info(f"Listed {len(models_sorted)} models: {models_sorted}")
+        models_dict[name] = models_sorted
+    return models_dict
 
 
 @router.post(

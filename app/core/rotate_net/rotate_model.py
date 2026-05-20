@@ -15,7 +15,11 @@ def _ensure_rotation_model(name: str):
     global rotation_model
     if name not in rotation_model:
         # Initialize the model and store it in the global variable
-        path = os.path.join("models", f"{name}.pth")
+        path = os.path.join(os.getenv("MODELS_VOLUME_PATH"), "rotation_model", f"{name}.pth")
+        if not os.path.exists(path):
+            logger.warning(f"Rotation model '{name}' not found at '{path}', falling back to default.")
+            path = os.path.join(os.getenv("MODELS_VOLUME_PATH"), "rotation_model", "text.pth")
+        
         rotation_model[name] = AngleDegModel(model=path)
     return rotation_model[name]
 

@@ -15,8 +15,8 @@ from app.api.authz import (
 )
 from app.api.setup_db import get_db
 from app.api.utils import (
-    format_page_data_list,
-    format_predicted,
+    format_pages,
+    format_predicted_pages,
     resize_image,
     save_scan_to_storage,
     sniff_media_type,
@@ -35,7 +35,7 @@ from app.db.schemas.title import (
     TitleUpdate,
 )
 from app.db.schemas.user import Permission, User
-from app.tasks.workflows.smartcrop_workflow import autocrop_workflow
+from app.tasks.workflows.predict_workflow import predict_workflow
 
 
 UPLOAD_VOLUME_PATH = os.getenv("SCANS_VOLUME_PATH")
@@ -162,7 +162,7 @@ async def process_title(request: Request, title_id: str, db=Depends(get_db)):
 
     # Schedule task and update state
     try:
-        await autocrop_workflow.aio_run_no_wait(input=Title.model_validate(title))
+        await predict_workflow.aio_run_no_wait(input=Title.model_validate(title))
         await db.titles.update_one(
             {"_id": ObjectId(title_id)},
             {"$set": {"state": TaskState.scheduled, "modified_at": datetime.now()}},
@@ -221,7 +221,7 @@ async def get_scans(title_id: str, scan_id: str | None = None, db=Depends(get_db
 
     scans = [Scan.model_validate(scan) for scan in title.get("scans", [])]
     scans = sorted(scans, key=lambda s: s.filename)
-    title["scans"] = format_page_data_list(scans)
+    title["scans"] = format_pages(scans)
     title = jsonable_encoder(
         title, custom_encoder={ObjectId: str}, exclude=["filelist"]
     )
@@ -252,7 +252,7 @@ async def get_predicted_pages(request: Request, title_id: str, db=Depends(get_db
 
     scans = [Scan.model_validate(scan) for scan in title.get("scans", [])]
     scans = sorted(scans, key=lambda s: s.filename)
-    title["scans"] = format_predicted(scans)
+    title["scans"] = format_predicted_pages(scans)
     title = jsonable_encoder(
         title, custom_encoder={ObjectId: str}, exclude=["filelist"]
     )
@@ -487,7 +487,16 @@ async def update_title(
     update_data["modified_by"] = current_user.email
     if update_data.get("settings"):
         update_data["state"] = TaskState.new
-        update_data["scans"] = []  # Clear scans if settings are updated
+        # Clear predicted and user edited pages if settings are updated
+        result = await db.titles.update_one(
+            {"_id": ObjectId(title_id)},
+            {
+                "$set": {
+                    "scans.$[].predicted_pages": [],
+                    "scans.$[].user_edited_pages": None,
+                }
+            },
+        )
 
     result = await db.titles.update_one(
         {"_id": ObjectId(title_id)},
@@ -502,7 +511,7 @@ async def update_title(
     if update_data.get("settings"):
         logger.info(f"Scheduling workflow for title ID: {title_id}")
         try:
-            await autocrop_workflow.aio_run_no_wait(
+            await predict_workflow.aio_run_no_wait(
                 input=Title.model_validate(updated_title)
             )
             await db.titles.update_one(

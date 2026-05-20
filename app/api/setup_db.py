@@ -39,7 +39,7 @@ async def lifespan(app):
     await create_indexes(db)
     await create_admin(db)
     await create_public_user(db)
-    await copy_default_model()
+    await copy_default_models()
 
     yield
     await client.close()
@@ -116,15 +116,25 @@ async def create_public_user(db):
         )
 
 
-async def copy_default_model():
+async def copy_default_models():
     """Copy default model to models volume if not already present."""
     # if directory crop_model is not present, create it
     crop_model_path = os.path.join(os.environ["MODELS_VOLUME_PATH"], "crop_model")
     if not os.path.exists(crop_model_path):
         os.makedirs(crop_model_path)
         logger.info(f"Models volume directory '{crop_model_path}' created.")
-
+    if "default.pt" not in os.listdir(crop_model_path):
         source = "models/crop-yolov10s-100e-mosaic-best.pt"
         dest = os.path.join(crop_model_path, "default.pt")
+        shutil.copy(source, dest)
+        logger.info(f"Copied default model from '{source}' to '{dest}'")
+    
+    rotation_model_path = os.path.join(os.environ["MODELS_VOLUME_PATH"], "rotation_model")
+    if not os.path.exists(rotation_model_path):
+        os.makedirs(rotation_model_path)
+        logger.info(f"Models volume directory '{rotation_model_path}' created.")
+    if "text.pth" not in os.listdir(rotation_model_path):
+        source = "models/rotate-300e-best.pth"
+        dest = os.path.join(rotation_model_path, "text.pth")
         shutil.copy(source, dest)
         logger.info(f"Copied default model from '{source}' to '{dest}'")

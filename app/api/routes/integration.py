@@ -13,7 +13,7 @@ from app.api.authz import (
 )
 from app.api.setup_db import get_db
 from app.api.utils import (
-    format_page_data_flat,
+    format_pages_integration,
     get_wrong_predictions,
     remove_title_from_storage,
 )
@@ -26,7 +26,7 @@ from app.db.schemas.title import Scan, TaskState, Title, TitleCreate
 from starlette.responses import RedirectResponse
 from pymongo.errors import DuplicateKeyError
 from app.db.schemas.user import Permission
-from app.tasks.workflows.integration_workflow import prepare_data_workflow
+from app.tasks.workflows.preprocess_workflow import preprocess_workflow
 
 router = APIRouter(prefix="/integration", tags=["Integration"])
 logger = logging.getLogger(__name__)
@@ -86,7 +86,7 @@ async def create_title(group_id: str, title_data: TitleCreate, db=Depends(get_db
 
     # Schedule task and update state
     try:
-        await prepare_data_workflow.aio_run_no_wait(input=doc)
+        await preprocess_workflow.aio_run_no_wait(input=doc)
     except grpc.RpcError:
         logger.warning(
             f"gRPC timeout when scheduling workflow for title {doc.external_id}"
@@ -155,7 +155,7 @@ async def get_coordinates(external_id: str, db=Depends(get_db)):
     title = await db.titles.find_one({"external_id": external_id})
 
     scans = [Scan.model_validate(scan) for scan in title.get("scans", [])]
-    pages = format_page_data_flat(scans, title["filelist"])
+    pages = format_pages_integration(scans, title["filelist"])
 
     logger.info(f"Returning coordinates for title {external_id}, {len(pages)} pages")
     return {
