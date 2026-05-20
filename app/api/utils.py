@@ -11,7 +11,7 @@ UPLOAD_VOLUME_PATH = os.getenv("SCANS_VOLUME_PATH")
 logger = logging.getLogger(__name__)
 
 
-def format_page_data_flat(scans: list[Scan], filepaths: list[str]) -> list[dict]:
+def format_pages_integration(scans: list[Scan], filepaths: list[str]) -> list[dict]:
     """Overrides predicted pages with user edited pages if available, flattens the list."""
     formatted_pages = []
     for scan, original_filepath in zip(scans, filepaths):
@@ -42,16 +42,18 @@ def format_page_data_flat(scans: list[Scan], filepaths: list[str]) -> list[dict]
     return formatted_pages
 
 
-def format_page_data_list(scans: list[Scan]) -> list[dict]:
+def format_pages(scans: list[Scan]) -> list[dict]:
     """Overrides predicted pages with user edited pages if available."""
     formatted_scans = []
-    for scan in sorted(scans, key=lambda s: s.filename):
+    for scan in scans:
         if scan.user_edited_pages is not None:
             edited = True
             pages = scan.user_edited_pages
         else:
             edited = False
             pages = scan.predicted_pages
+
+        pages = sorted(pages, key=lambda p: p.xc)  # left first
 
         # Collect all flags from pages, store on scan level
         flags = set([flag for page in scan.predicted_pages for flag in page.flags])
@@ -73,7 +75,7 @@ def get_wrong_predictions(scans: list[Scan]) -> int:
     return [scan for scan in scans if scan.user_edited_pages is not None]
 
 
-def format_predicted(scans: list[Scan]) -> list[dict]:
+def format_predicted_pages(scans: list[Scan]) -> list[dict]:
     """Formats scans with ML generated pages only."""
     formatted_scans = []
     for scan in sorted(scans, key=lambda s: s.filename):
