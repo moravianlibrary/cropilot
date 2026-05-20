@@ -37,7 +37,7 @@ services:
       timeout: 10s
       retries: 5
   migration:
-    image: ghcr.io/hatchet-dev/hatchet/hatchet-migrate:v0.79.14
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-migrate:v0.86.1
     command: /hatchet/hatchet-migrate
     env_file:
       - .admin-user-env
@@ -47,7 +47,7 @@ services:
       postgres:
         condition: service_healthy
   setup-config:
-    image: ghcr.io/hatchet-dev/hatchet/hatchet-admin:v0.79.14
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-admin:v0.86.1
     command: /hatchet/hatchet-admin quickstart --skip certs --generated-config-dir /hatchet/config --overwrite=false
     env_file:
       - .admin-user-env
@@ -72,7 +72,7 @@ services:
       postgres:
         condition: service_healthy
   hatchet-engine:
-    image: ghcr.io/hatchet-dev/hatchet/hatchet-engine:v0.79.14
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-engine:v0.86.1
     command: /hatchet/hatchet-engine --config /hatchet/config
     restart: on-failure
     depends_on:
@@ -90,7 +90,7 @@ services:
       - hatchet_certs:/hatchet/certs
       - hatchet_config:/hatchet/config
   hatchet-dashboard:
-    image: ghcr.io/hatchet-dev/hatchet/hatchet-dashboard:v0.79.14
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-dashboard:v0.86.1
     command: sh ./entrypoint.sh --config /hatchet/config
     ports:
       - "127.0.0.1:8080:80"
