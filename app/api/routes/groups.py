@@ -119,10 +119,15 @@ async def create_group(
 ):
     """Creates a new group."""
     models = await list_models()
-    if group.default_settings.crop_model not in models["available_models"]:
+    if group.default_settings.crop_model not in models["crop_models"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Model '{group.default_settings.crop_model}' does not exist",
+        )
+    if group.default_settings.rotation_model not in models["rotation_models"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Model '{group.default_settings.rotation_model}' does not exist",
         )
 
     try:
@@ -329,11 +334,19 @@ async def update_group(
         models = await list_models()
         if (
             update_data["default_settings"]["crop_model"]
-            not in models["available_models"]
+            not in models["crop_models"]
         ):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Model '{update_data['default_settings']['crop_model']}' does not exist",
+            )
+        if (
+            update_data["default_settings"]["rotation_model"]
+            not in models["rotation_models"]
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Model '{update_data['default_settings']['rotation_model']}' does not exist",
             )
 
     update_data["modified_at"] = datetime.now()

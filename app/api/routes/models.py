@@ -15,14 +15,16 @@ ROTATION_MODEL_PATH = os.path.join(os.environ.get("MODELS_VOLUME_PATH"), "rotati
 @router.get("")
 async def list_models():
     models_dict = {}
-    for path, ext, name in [(CROP_MODEL_PATH, ".pt", "crop_models"), (ROTATION_MODEL_PATH, ".pth", "rotation_models")]:
 
-        models = os.listdir(path)
-        # remove .pt extension
-        models = [model[:-len(ext)] for model in models if model.endswith(ext)]
-        models_sorted = [models.pop(models.index("default"))] + sorted(models)
-        logger.info(f"Listed {len(models_sorted)} models: {models_sorted}")
-        models_dict[name] = models_sorted
+    models = os.listdir(CROP_MODEL_PATH)
+    # remove .pt extension
+    models = [model[:-len(".pt")] for model in models if model.endswith(".pt")]
+    models_sorted = [models.pop(models.index("default"))] + sorted(models)
+    logger.info(f"Listed {len(models_sorted)} models: {models_sorted}")
+    
+    models_dict["crop_models"] = models_sorted
+    models_dict["rotation_models"] = [model[:-len(".pth")] for model in os.listdir(ROTATION_MODEL_PATH) if model.endswith(".pth")]
+
     return models_dict
 
 
