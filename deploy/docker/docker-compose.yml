@@ -1,7 +1,7 @@
-name: cropilot-app
+name: cropilot
 
 services:
-  postgres:
+  postgres:  # Hatchet-managed container
     image: postgres:15.6
     command: postgres -c 'max_connections=1000'
     restart: always
@@ -20,7 +20,7 @@ services:
       timeout: 10s
       retries: 5
       start_period: 10s
-  rabbitmq:
+  rabbitmq:  # Hatchet-managed container
     image: "rabbitmq:3-management"
     hostname: "rabbitmq"
     env_file:
@@ -36,7 +36,7 @@ services:
       interval: 10s
       timeout: 10s
       retries: 5
-  migration:
+  migration:  # Hatchet-managed container
     image: ghcr.io/hatchet-dev/hatchet/hatchet-migrate:v0.86.1
     command: /hatchet/hatchet-migrate
     env_file:
@@ -46,7 +46,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-  setup-config:
+  setup-config:  # Hatchet-managed container
     image: ghcr.io/hatchet-dev/hatchet/hatchet-admin:v0.86.1
     command: /hatchet/hatchet-admin quickstart --skip certs --generated-config-dir /hatchet/config --overwrite=false
     env_file:
@@ -71,7 +71,7 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-  hatchet-engine:
+  hatchet-engine:  # Hatchet-managed container
     image: ghcr.io/hatchet-dev/hatchet/hatchet-engine:v0.86.1
     command: /hatchet/hatchet-engine --config /hatchet/config
     restart: on-failure
@@ -89,7 +89,7 @@ services:
     volumes:
       - hatchet_certs:/hatchet/certs
       - hatchet_config:/hatchet/config
-  hatchet-dashboard:
+  hatchet-dashboard:  # Hatchet-managed container
     image: ghcr.io/hatchet-dev/hatchet/hatchet-dashboard:v0.86.1
     command: sh ./entrypoint.sh --config /hatchet/config
     ports:
@@ -138,7 +138,7 @@ services:
       ENABLE_TLS: false
       MONGODB_URI: ${MONGODB_URI}
       MONGODB_DB: database_name
-      SCANS_VOLUME_PATH: /upload_data
+      SCANS_VOLUME_PATH: /scan_data
       MODELS_VOLUME_PATH: /models
       PWD_SECRET: ${PWD_SECRET}
     healthcheck:
@@ -149,10 +149,10 @@ services:
       start_period: 10s
     restart: unless-stopped
     volumes:
-      - scan_data:/upload_data
+      - scan_data:/scan_data
       - models:/models
 
-  worker:
+  worker:  # ML worker
     image: trinera/smart-crop:1.2.0
     build:
       args:
@@ -170,14 +170,14 @@ services:
       ENABLE_TLS: false
       MONGODB_URI: ${MONGODB_URI}
       MONGODB_DB: mydb
-      SCANS_VOLUME_PATH: /upload_data
+      SCANS_VOLUME_PATH: /scan_data
       MODELS_VOLUME_PATH: /models
     restart: unless-stopped
     volumes:
-       - scan_data:/upload_data
+       - scan_data:/scan_data
        - models:/models
   
-  frontend:
+  frontend:  # Angular frontend
     image: trinera/cropilot-frontend:1.2.0
     command: npm run start
     ports:
