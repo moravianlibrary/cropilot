@@ -41,7 +41,7 @@ This file contains the Hatchet API token used by the worker.
 Generate it automatically by running:
 
 ```bash
-./generate-worker-env.sh
+./deploy/scripts/generate-worker-env.sh
 ```
 
 Alternatively, create it manually from `.worker-env.example` and replace the token value with your Hatchet API token.

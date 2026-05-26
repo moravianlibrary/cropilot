@@ -14,9 +14,10 @@ The backend exposes an API used by the Cropilot frontend and can also be accesse
 
 ## Self-hosting
 
-Cropilot is officially available at [app.cropilot.cz](https://www.app.cropilot.cz). If you want to self-host, the app can be deployed using Docker Compose or Helm for Kubernetes deployment. The production setup includes the backend API, worker, Hatchet queue manager, MongoDB, and frontend services.
+If you want to self-host, the app can be deployed using Docker Compose or Helm for Kubernetes deployment. The production setup includes the backend API, worker, Hatchet queue manager, MongoDB, and frontend services. Cropilot releases are also published as Docker images on Docker Hub under names [trinera/smart-crop](https://hub.docker.com/repository/docker/trinera/smart-crop) and [trinera/cropilot-frontend](https://hub.docker.com/repository/docker/trinera/cropilot-frontend). 
 
 See the [Docker Deployment Guide](./deploy/docker/README.md) or [Kubernetes Deployment Guide](./deploy/kubernetes/README.md) for full setup instructions.
+
 
 ## Cropilot Tools
 
@@ -32,7 +33,7 @@ These tools can be used to:
 
 *Example of bulk image processing workflow using the uploader.py script*
 
-See the [Cropilot Tools Guide](https://github.com/moravianlibrary/orezy-utils/tree/main/cropilot_api_tools) for usage instructions.
+See the [Cropilot Tools Guide](https://github.com/moravianlibrary/cropilot-utils/tree/main/cropilot_api_tools) for usage instructions.
 
 ## Development
 
