@@ -38,25 +38,4 @@ See the [Cropilot Tools Guide](https://github.com/moravianlibrary/cropilot-utils
 
 ## Development
 
-### Aplication structure
-
-The application is organized into the following modules:
-
-- **api**: FastAPI routers used by the frontend and external integrations.
-- **core**: AI models and image-processing logic, including a fine-tuned YOLO model for page coordinate detection and a ResNet-based rotation model for orientation correction.
-- **db**: MongoDB collections defined with Pydantic models, together with related database queries.
-- **tasks**: Hatchet task queue configuration and worker tasks that execute the machine learning pipeline asynchronously.
-
-### Cheat sheet
-
-```bash
-uvx ruff format . && uvx ruff check --fix .
-```
-
-Format the project and fix linter errors.
-
-```bash
-uv run pytest -v
-```
-
-Run tests.
+Contributing to Cropilot? Check out our [Development section](./docs/DEVELOPMENT.md).
