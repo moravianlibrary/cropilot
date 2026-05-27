@@ -1,6 +1,6 @@
 [project]
 name = "cropilot"
-version = "1.2.0"
+version = "1.2.2"
 description = "Crop images using AI"
 readme = "README.md"
 requires-python = ">=3.13"

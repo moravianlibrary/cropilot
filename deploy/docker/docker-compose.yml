@@ -119,7 +119,7 @@ services:
       - mongo_data:/data/db
 
   api:  # FastAPI backend
-    image: trinera/smart-crop:1.2.0
+    image: trinera/smart-crop:1.2.2
     user: "1000:1000"
     depends_on:
       mongo-db:
@@ -150,7 +150,7 @@ services:
       - models:/models
 
   worker:  # ML worker
-    image: trinera/smart-crop:1.2.0
+    image: trinera/smart-crop:1.2.2
     user: "1000:1000"
     depends_on:
       api:
@@ -172,7 +172,7 @@ services:
        - models:/models
   
   frontend:  # Angular frontend
-    image: trinera/cropilot-frontend:1.2.0
+    image: trinera/cropilot-frontend:1.2.2
     command: npm run start
     ports:
       - "1234:80"
