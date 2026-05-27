@@ -120,10 +120,7 @@ services:
 
   api:  # FastAPI backend
     image: trinera/smart-crop:1.2.0
-    build:
-      args:
-        - MODELS_VOLUME_PATH=${MODELS_VOLUME_PATH}
-        - SCANS_VOLUME_PATH=${SCANS_VOLUME_PATH}
+    user: "1000:1000"
     depends_on:
       mongo-db:
         condition: service_started
@@ -154,10 +151,7 @@ services:
 
   worker:  # ML worker
     image: trinera/smart-crop:1.2.0
-    build:
-      args:
-        - SCANS_VOLUME_PATH=${SCANS_VOLUME_PATH}
-        - MODELS_VOLUME_PATH=${MODELS_VOLUME_PATH}
+    user: "1000:1000"
     depends_on:
       api:
         condition: service_started
@@ -186,6 +180,19 @@ services:
       APP_DATA_SERVER_URL: http://localhost:8000
       APP_DEV_MODE: false
     restart: unless-stopped
+
+  volume-init:
+    image: alpine:3.20
+    user: root
+    command: >
+      sh -c "
+        mkdir -p /scan_data /models &&
+        chown -R 1000:1000 /scan_data /models
+      "
+    volumes:
+      - scan_data:/scan_data
+      - models:/models
+    restart: "no"
 
 volumes:
   hatchet_postgres_data:
