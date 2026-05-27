@@ -19,11 +19,12 @@ If you want to self-host, the app can be deployed using Docker Compose. The prod
 See the [Docker Deployment Guide](./deploy/docker/README.md) for full setup instructions.
 
 
-## Cropilot Tools
+## How Cropilot processes your data
 
-Cropilot Tools is a separate repository containing utility scripts for working with the Cropilot API.
+The web UI provides a simple upload interface for image files up to 4 MB. For larger scan batches, Cropilot can also be used through **Cropilot Tools**: a separate [repository](https://github.com/moravianlibrary/cropilot-utils/) of utility scripts that interact with the Cropilot API and support bulk automated workflows.
 
-These tools can be used to:
+
+Cropilot Tools can be used to:
 
 - Upload scan batches to Cropilot editor.
 - Crop images using Cropilot-generated instructions.
