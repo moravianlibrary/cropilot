@@ -26,7 +26,7 @@ services:
     env_file:
       - .admin-user-env
     environment:
-      RABBITMQ_DEFAULT_USER: "autocrop-rabbitmq-user"
+      RABBITMQ_DEFAULT_USER: "rabbitmq-default-username"
       RABBITMQ_DEFAULT_PASS: "${RABBITMQ_DEFAULT_PASS}"
     volumes:
       - "hatchet_rabbitmq_data:/var/lib/rabbitmq"
@@ -113,13 +113,13 @@ services:
     image: mongo:8.2
     restart: always
     environment:
-      MONGO_INITDB_ROOT_USERNAME: autocrop-db-user
+      MONGO_INITDB_ROOT_USERNAME: mongodb-default-username
       MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_PASS}
     volumes:
       - mongo_data:/data/db
 
   api:  # FastAPI backend
-    image: trinera/smart-crop:1.2.2
+    image: trinera/smart-crop:latest
     user: "1000:1000"
     depends_on:
       mongo-db:
@@ -150,7 +150,7 @@ services:
       - models:/models
 
   worker:  # ML worker
-    image: trinera/smart-crop:1.2.2
+    image: trinera/smart-crop:latest
     user: "1000:1000"
     depends_on:
       api:
@@ -172,7 +172,7 @@ services:
        - models:/models
   
   frontend:  # Angular frontend
-    image: trinera/cropilot-frontend:1.2.2
+    image: trinera/cropilot-frontend:latest
     command: npm run start
     ports:
       - "1234:80"

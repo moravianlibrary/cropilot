@@ -1,0 +1,37 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: cropilot
+
+resources:
+  - namespace.yml
+  - storage.yml
+  - mongo-statefulset.yml
+  - api-deployment.yml
+  - worker-deployment.yml
+  - frontend-deployment.yml
+  - ingress.yml
+  - secret.yml
+
+configMapGenerator:
+  - name: cropilot-api-env
+    literals:
+      - ENABLE_TLS=false
+      - WEBAPP_FRONTEND_URL=http://cropilot.local
+      - MONGODB_DB=database_name
+      - SCANS_VOLUME_PATH=/scan_data
+      - MODELS_VOLUME_PATH=/models
+      - HATCHET_CLIENT_HOST_PORT=hatchet-engine.hatchet.svc.cluster.local:7070
+      - HATCHET_CLIENT_TLS_STRATEGY=none
+  - name: cropilot-frontend-env
+    literals:
+      - APP_DATA_SERVER_URL=http://api.cropilot.local
+      - APP_DEV_MODE=false
+
+images:
+  - name: local/smart-crop
+    newName: docker.io/trinera/smart-crop
+    newTag: latest
+  - name: local/cropilot-frontend
+    newName: docker.io/trinera/cropilot-frontend
+    newTag: latest
