@@ -1,3 +1,4 @@
+from typing import Literal
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -61,10 +62,12 @@ class Scan(BaseModelWithId):
     scan_name: str
     predicted_pages: list[Page] = Field(default_factory=list)
     user_edited_pages: list[Page] | None = None
+    orientation: Literal[0, 90, 180, 270] = 0
 
 
 class ScanUpdate(BaseModelWithId):
-    pages: list[Page]
+    pages: list[Page] | None = None
+    orientation: Literal[0, 90, 180, 270] | None = None
 
 
 class TitleCreate(BaseModel):

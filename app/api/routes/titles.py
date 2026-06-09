@@ -361,18 +361,30 @@ async def update_pages(
     """
     logger.info(f"Updating pages for title ID: {title_id}")
     for scan in scans:
-        pages = [page.model_dump(by_alias=True) for page in scan.pages]
+        if scan.pages:
+            pages = [page.model_dump(by_alias=True) for page in scan.pages]
 
-        result = await db.titles.update_one(
-            {"_id": ObjectId(title_id), "scans._id": scan.id},
-            {
-                "$set": {
-                    "scans.$.user_edited_pages": pages,
-                }
-            },
-        )
-        if result.matched_count == 0:
-            raise HTTPException(404, f"Scan with id {scan.id} not found")
+            result = await db.titles.update_one(
+                {"_id": ObjectId(title_id), "scans._id": scan.id},
+                {
+                    "$set": {
+                        "scans.$.user_edited_pages": pages,
+                    }
+                },
+            )
+            if result.matched_count == 0:
+                raise HTTPException(404, f"Scan with id {scan.id} not found")
+        if scan.orientation is not None:
+            result = await db.titles.update_one(
+                {"_id": ObjectId(title_id), "scans._id": scan.id},
+                {
+                    "$set": {
+                        "scans.$.orientation": scan.orientation,
+                    }
+                },
+            )
+            if result.matched_count == 0:
+                raise HTTPException(404, f"Scan with id {scan.id} not found")
 
     # Update title state to user_approved
     await db.titles.update_one(

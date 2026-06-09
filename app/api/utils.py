@@ -37,6 +37,7 @@ def format_pages_integration(scans: list[Scan], filepaths: list[str]) -> list[di
                     "height": page.height,
                     "angle": page.angle,
                     "type": page_type,
+                    "orientation": scan.orientation,
                 }
             )
     return formatted_pages
@@ -62,6 +63,7 @@ def format_pages(scans: list[Scan]) -> list[dict]:
             {
                 "_id": str(scan.id),
                 "flags": flags,
+                "orientation": scan.orientation,
                 "scan_name": scan.scan_name,
                 "pages": jsonable_encoder(pages),
                 "edited": edited,
