@@ -36,7 +36,10 @@ class AngleDegModel(nn.Module):
         self.head = DegreeHead(in_feats, angle_max)
 
         if model is not None:
-            ckpt = torch.load(model, map_location=self.device)
+            # These checkpoints are produced by our training pipeline and store
+            # a dict containing the model state. PyTorch 2.6 defaults
+            # weights_only=True, which rejects this legacy checkpoint shape.
+            ckpt = torch.load(model, map_location=self.device, weights_only=False)
             self.load_state_dict(ckpt["model"])
 
     @property

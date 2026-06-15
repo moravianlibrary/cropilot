@@ -86,6 +86,7 @@ def format_predicted_pages(scans: list[Scan]) -> list[dict]:
             {
                 "_id": str(scan.id),
                 "flags": flags,
+                "orientation": scan.orientation,
                 "scan_name": scan.scan_name,
                 "pages": jsonable_encoder(scan.predicted_pages),
             }
