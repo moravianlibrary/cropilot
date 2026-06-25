@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 preprocess_workflow = hatchet.workflow(name="preprocess-workflow")
 
 
-@preprocess_workflow.task(execution_timeout=timedelta(minutes=10))
+@preprocess_workflow.task(execution_timeout=timedelta(minutes=30), schedule_timeout=timedelta(minutes=120))
 def upload_scans(input: Title, ctx: Context):
     """Crops images in the input folder using the specified method."""
     ctx.log(f"Starting data preparation task for title {input.id}")

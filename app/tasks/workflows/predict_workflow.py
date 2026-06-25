@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 predict_workflow = hatchet.workflow(name="predict-workflow")
 
 
-@predict_workflow.task(execution_timeout=timedelta(minutes=10))
+@predict_workflow.task(execution_timeout=timedelta(minutes=20), schedule_timeout=timedelta(minutes=120))
 def crop(input: Title, ctx: Context):
     """Crops images in the input folder using the specified method."""
     ctx.log(f"Starting crop task for title {input.id}")
@@ -67,7 +67,7 @@ def crop(input: Title, ctx: Context):
     return output
 
 
-@predict_workflow.task(parents=[crop], execution_timeout=timedelta(minutes=10))
+@predict_workflow.task(parents=[crop], execution_timeout=timedelta(minutes=20), schedule_timeout=timedelta(minutes=120))
 def rotate(input: EmptyModel, ctx: Context):
     """Rotates images based on detected bounding boxes."""
     ctx.log(f"Starting rotate task for title {ctx.workflow_input['id']}")
@@ -79,7 +79,7 @@ def rotate(input: EmptyModel, ctx: Context):
     return output
 
 
-@predict_workflow.task(parents=[rotate], execution_timeout=timedelta(minutes=5))
+@predict_workflow.task(parents=[rotate], execution_timeout=timedelta(minutes=15), schedule_timeout=timedelta(minutes=120))
 def detect_anomalies(input: EmptyModel, ctx: Context):
     """Detects potential mistakes in the processed images."""
     output = ctx.task_output(rotate)
