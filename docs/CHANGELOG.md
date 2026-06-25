@@ -1,3 +1,30 @@
+# 1.2.3 - 2026-06-25
+
+## Added
+
+- Added `orientation` to scan output with values `0`, `90`, `180`, and `270`.
+- Added support for setting scan orientation from the Cropilot UI.
+- Added Kubernetes deployment manifests and deployment documentation.
+
+## Changes
+
+### API and processing
+
+- Increased Hatchet task schedule timeout from 5 minutes to 2 hours.
+- Renamed and split Hatchet workflows into preprocessing and prediction workflows.
+
+### Deployment
+
+- Reorganized deployment files under `deploy/docker`, `deploy/kubernetes`, and `deploy/scripts`.
+- Updated Docker Compose configuration and fixed volume permission issues.
+- Updated documentation for deployment, development, and Cropilot utilities.
+
+## Fixes
+
+- Fixed title deletion validation for older documents with schema mismatches.
+- Added integration tests for titles and group management and fixed API bugs found by those tests.
+- Updated dependencies and image versions.
+
 # 1.2.0 - 2026-04-05
 
 ## Added
