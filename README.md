@@ -36,6 +36,8 @@ Cropilot Tools can be used to:
 
 See the [Cropilot Tools Guide](https://github.com/moravianlibrary/cropilot-utils/tree/main/cropilot_api_tools) for usage instructions.
 
-## Development
+## Community and development
+
+Cropilot's crop and rotation models are shared through the open-source **[Cropilot Community on Hugging Face](https://huggingface.co/cropilot-community)**. You can download ready-to-use models there, or train and publish your own to share with other users. See the community's contributing guide for how to add a model.
 
 Contributing to Cropilot? Check out our [Development section](./docs/DEVELOPMENT.md).
