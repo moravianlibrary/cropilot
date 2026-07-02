@@ -35,7 +35,8 @@ def format_pages_integration(scans: list[Scan], filepaths: list[str]) -> list[di
                     "yc": page.yc,
                     "width": page.width,
                     "height": page.height,
-                    "angle": page.angle + scan.orientation,
+                    "angle": page.angle,
+                    "orientation": scan.orientation,
                     "type": page_type,
                 }
             )
