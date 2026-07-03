@@ -1,9 +1,12 @@
 from datetime import datetime
 import logging
+import math
+import re
 from typing import Annotated
 
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pymongo import ASCENDING, DESCENDING
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.encoders import jsonable_encoder
 from app.api.limiter import limiter
 from app.api.routes.models import list_models
@@ -62,6 +65,15 @@ async def list_groups(
     return jsonable_encoder(groups, custom_encoder={ObjectId: str})
 
 
+# Fields the titles list can be sorted by (maps API name -> stored field).
+_TITLE_SORT_FIELDS = {
+    "external_id": "external_id",
+    "created_at": "created_at",
+    "modified_at": "modified_at",
+    "state": "state",
+}
+
+
 @limiter.limit("2000/minute")
 @router.get(
     "/{group_id}",
@@ -73,11 +85,34 @@ async def list_groups(
         )
     ],
 )
-async def get_titles(request: Request, group_id: str, db=Depends(get_db)):
-    """Gets all titles from the database.
+async def get_titles(
+    request: Request,
+    group_id: str,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=500)] = 50,
+    search: Annotated[str | None, Query()] = None,
+    sort_field: Annotated[str | None, Query()] = None,
+    sort_direction: Annotated[str, Query(pattern="^(asc|desc)$")] = "desc",
+    state: Annotated[str | None, Query()] = None,
+    crop_model: Annotated[str | None, Query()] = None,
+    rotation_model: Annotated[str | None, Query()] = None,
+    db=Depends(get_db),
+):
+    """Gets a paginated, optionally filtered and sorted list of titles in a group.
+
+    Query params:
+        page: 1-based page number.
+        page_size: Number of titles per page.
+        search: Case-insensitive text matched against external_id / crop model
+            (and the title ID when it is a valid ObjectId).
+        sort_field: One of external_id, created_at, modified_at, state.
+        sort_direction: asc or desc.
+        state, crop_model, rotation_model: Optional exact-match filters.
 
     Returns:
-        dict: Titles containing their IDs, states, creation and modification dates.
+        dict: The group with a paginated ``titles`` list, pagination metadata
+        (total, page, page_size, total_pages) and ``filter_options`` holding the
+        distinct crop/rotation models across the whole group.
     """
     if not ObjectId.is_valid(group_id):
         raise HTTPException(400, f"ID '{group_id}' is not a valid ObjectId")
@@ -88,23 +123,75 @@ async def get_titles(request: Request, group_id: str, db=Depends(get_db)):
             status_code=status.HTTP_404_NOT_FOUND, detail="Group not found"
         )
 
-    titles = await db.titles.find(
-        {"group_id": ObjectId(group_id)},
-        {
-            "_id": 1,
-            "state": 1,
-            "created_at": 1,
-            "modified_at": 1,
-            "external_id": 1,
-            "settings": 1,
-        },
-    ).to_list(None)
+    # Build the query: always scoped to the group, plus optional filters.
+    query: dict = {"group_id": ObjectId(group_id)}
+    if state:
+        query["state"] = state
+    if crop_model:
+        query["settings.crop_model"] = crop_model
+    if rotation_model:
+        query["settings.rotation_model"] = rotation_model
+    if search:
+        search = search.strip()
+        if search:
+            escaped = re.escape(search)
+            or_conditions: list[dict] = [
+                {"external_id": {"$regex": escaped, "$options": "i"}},
+                {"settings.crop_model": {"$regex": escaped, "$options": "i"}},
+            ]
+            if ObjectId.is_valid(search):
+                or_conditions.append({"_id": ObjectId(search)})
+            query["$or"] = or_conditions
 
-    # Show most recently created titles first
-    titles = sorted(titles, key=lambda x: x["created_at"], reverse=True)
+    # Resolve sorting (defaults to newest first).
+    sort_key = _TITLE_SORT_FIELDS.get(sort_field or "", "created_at")
+    sort_order = ASCENDING if sort_direction == "asc" else DESCENDING
+
+    total = await db.titles.count_documents(query)
+    total_pages = math.ceil(total / page_size) if total else 0
+
+    titles = (
+        await db.titles.find(
+            query,
+            {
+                "_id": 1,
+                "state": 1,
+                "created_at": 1,
+                "modified_at": 1,
+                "external_id": 1,
+                "settings": 1,
+            },
+        )
+        .sort([(sort_key, sort_order), ("_id", ASCENDING)])
+        .skip((page - 1) * page_size)
+        .limit(page_size)
+        .to_list(length=page_size)
+    )
 
     group["titles"] = titles
-    logger.info(f"Fetched {len(titles)} titles for group ID {group_id}")
+    group["total"] = total
+    group["page"] = page
+    group["page_size"] = page_size
+    group["total_pages"] = total_pages
+
+    # Distinct filter options span the whole group and don't change between pages,
+    # so only compute them on the first page (each distinct is a full group scan).
+    # The frontend keeps the previously received options for subsequent pages.
+    if page == 1:
+        group_scope = {"group_id": ObjectId(group_id)}
+        crop_models = await db.titles.distinct("settings.crop_model", group_scope)
+        rotation_models = await db.titles.distinct("settings.rotation_model", group_scope)
+        group["filter_options"] = {
+            "crop_models": sorted(m for m in crop_models if m),
+            "rotation_models": sorted(m for m in rotation_models if m),
+        }
+    else:
+        group["filter_options"] = None
+
+    logger.info(
+        f"Fetched {len(titles)}/{total} titles for group ID {group_id} "
+        f"(page {page}/{total_pages or 1}, size {page_size})"
+    )
     return jsonable_encoder(
         group, custom_encoder={ObjectId: str}, exclude=["title_ids", "api_key"]
     )
