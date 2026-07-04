@@ -22,6 +22,7 @@ class Anomaly(str, Enum):
     dimensions = "odd_dimensions"
     prediction_error = "no_prediction"
     prediction_overlap = "prediction_overlap"
+    split = "bad_split"
 
 
 class TaskState(str, Enum):

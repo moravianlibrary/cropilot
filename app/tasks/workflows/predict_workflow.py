@@ -13,6 +13,7 @@ from app.db.operations.hatchet import (
 )
 from app.db.schemas.title import TaskState, Title
 from app.core.anomalies import (
+    flag_bad_split,
     flag_dimensions_anomalies,
     flag_low_confidence,
     flag_missing_pages,
@@ -85,11 +86,13 @@ def detect_anomalies(input: EmptyModel, ctx: Context):
     output = ctx.task_output(rotate)
     output = Title.model_validate(output, by_name=True)
 
-    output.scans = flag_missing_pages(output.scans)
     output.scans = flag_low_confidence(output.scans)
     output.scans = flag_dimensions_anomalies(output.scans)
-    output.scans = flag_prediction_errors(output.scans)
     output.scans = flag_prediction_overlaps(output.scans)
+    output.scans = flag_missing_pages(output.scans)
+    output.scans = flag_bad_split(output.scans)
+    # Run last so synthetic full-frame pages aren't picked up by the checks above.
+    output.scans = flag_prediction_errors(output.scans)
 
     db_replace_scans(output.id, output.scans, _ensure_db())
     db_update_task_state(output.id, TaskState.ready, _ensure_db())
