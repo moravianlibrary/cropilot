@@ -53,8 +53,16 @@ def rotate_pages(
         image_size=640,
         angle_max=10.0,
     )
+    # Overlap image preprocessing with inference when configured; pinned memory
+    # only helps host->GPU transfers, so skip it on CPU (avoids wasted buffers).
+    num_workers = int(os.getenv("ROTATION_NUM_WORKERS", "0"))
+    use_cuda = model.device.type == "cuda"
     loader = DataLoader(
-        df, batch_size=16, shuffle=False, num_workers=0, pin_memory=True
+        df,
+        batch_size=int(os.getenv("ROTATION_BATCH_SIZE", "16")),
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=use_cuda,
     )
     preds = predict_angles(model, loader)
 

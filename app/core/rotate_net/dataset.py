@@ -36,13 +36,24 @@ class PageAngleDataset(Dataset):
             ]
         )
 
+        # Single-image decode cache: pages of the same scan are consecutive,
+        # so this avoids re-decoding the full scan once per page (2+ pages/scan).
+        self._cache_path: str | None = None
+        self._cache_img: np.ndarray | None = None
+
+    def _read_image(self, img_path: str) -> np.ndarray:
+        if img_path != self._cache_path:
+            self._cache_img = cv2.imread(img_path)
+            self._cache_path = img_path
+        return self._cache_img
+
     def __len__(self) -> int:
         return len(self.image_paths)
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
-        # Load image
+        # Load image (cached across consecutive pages of the same scan)
         img_path = self.image_paths[idx]
-        img = cv2.imread(img_path)
+        img = self._read_image(img_path)
 
         angle = 0.0
         # Load crop coordinates
