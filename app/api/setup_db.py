@@ -57,6 +57,11 @@ async def create_indexes(db):
     await db.groups.create_index([("name", 1)], unique=True, name="unique_group_name")
     await db.users.create_index([("email", 1)], unique=True, name="unique_user_email")
     await db.users.create_index([("role", 1)], name="role_index")
+    # Backs the paginated users listing (get_all_users): default newest-first sort
+    # with _id as a stable tiebreaker for skip/limit pagination.
+    await db.users.create_index(
+        [("created_at", -1), ("_id", 1)], name="users_created"
+    )
     # Backs the paginated titles listing (get_titles): scoped to a group and
     # sorted newest-first, with _id as a stable tiebreaker. Makes the default
     # sort + skip/limit + count index-backed instead of a collection scan.

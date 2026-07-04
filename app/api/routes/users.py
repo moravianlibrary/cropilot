@@ -1,9 +1,12 @@
 from datetime import datetime
 import logging
+import math
+import re
 from typing import Annotated
 
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from pymongo import ASCENDING, DESCENDING
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.security import OAuth2PasswordRequestForm
 from app.api.setup_db import get_db
@@ -73,46 +76,111 @@ async def me(
     return jsonable_encoder(current_user, exclude=["password"])
 
 
-@limiter.limit("120/minute")
-@router.get(
-    "",
-    dependencies=[Depends(require_role(Role.admin))],
-)
-async def get_all_users(
-    request: Request, group_id: str | None = None, db=Depends(get_db)
-):
-    """List all users, can be filtered by group ID. Admin only."""
-    if group_id:
-        users = await db.users.find(
-            {"permissions.group_id": ObjectId(group_id)}
-        ).to_list()
-    else:
-        users = await db.users.find({}).to_list(length=None)
+# Fields the users list can be sorted by (maps API name -> stored field).
+_USER_SORT_FIELDS = {
+    "full_name": "full_name",
+    "email": "email",
+    "created_at": "created_at",
+    "modified_at": "modified_at",
+}
 
-    # Collect unique group_ids from all users
+
+async def _enrich_users_with_group_names(users: list[dict], db) -> None:
+    """Adds permissions[*].group_name to each user document in place."""
     group_ids = {
         p["group_id"]
         for u in users
         for p in (u.get("permissions") or [])
         if p.get("group_id") is not None
     }
-
     groups = await db.groups.find(
         {"_id": {"$in": list(group_ids)}},
         {"name": 1},
     ).to_list(length=None)
-
     group_name_by_id = {g["_id"]: g["name"] for g in groups}
-
-    # Enrich users in-memory
     for u in users:
         for p in u.get("permissions") or []:
-            gid = p.get("group_id")
-            p["group_name"] = group_name_by_id.get(gid)
+            p["group_name"] = group_name_by_id.get(p.get("group_id"))
 
-    logger.info(f"Fetched {len(users)} users with permissions for groups: {group_ids}")
-    # users now contains permissions[*].group_name
-    return jsonable_encoder(users, exclude=["password"], custom_encoder={ObjectId: str})
+
+@limiter.limit("120/minute")
+@router.get(
+    "",
+    dependencies=[Depends(require_role(Role.admin))],
+)
+async def get_all_users(
+    request: Request,
+    group_id: str | None = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+    search: Annotated[str | None, Query()] = None,
+    sort_field: Annotated[str | None, Query()] = None,
+    sort_direction: Annotated[str, Query(pattern="^(asc|desc)$")] = "desc",
+    db=Depends(get_db),
+):
+    """List all users, can be filtered by group ID. Admin only.
+
+    When any of ``page``/``page_size``/``search`` is provided, returns a
+    paginated envelope ``{items, total, page, page_size, total_pages}`` with
+    server-side search (full name/email, and id for a valid ObjectId) and
+    sorting. Otherwise returns the full list unchanged (backward compatible).
+    """
+    query: dict = {}
+    if group_id:
+        query["permissions.group_id"] = ObjectId(group_id)
+    if search:
+        search = search.strip()
+        if search:
+            escaped = re.escape(search)
+            or_conditions: list[dict] = [
+                {"full_name": {"$regex": escaped, "$options": "i"}},
+                {"email": {"$regex": escaped, "$options": "i"}},
+            ]
+            if ObjectId.is_valid(search):
+                or_conditions.append({"_id": ObjectId(search)})
+            query["$or"] = or_conditions
+
+    paginate = page is not None or page_size is not None or search is not None
+
+    # Legacy behaviour: return the full (optionally group-filtered) list.
+    if not paginate:
+        users = await db.users.find(query).to_list(length=None)
+        await _enrich_users_with_group_names(users, db)
+        logger.info(f"Fetched {len(users)} users")
+        return jsonable_encoder(
+            users, exclude=["password"], custom_encoder={ObjectId: str}
+        )
+
+    page = page or 1
+    page_size = page_size or 50
+    sort_key = _USER_SORT_FIELDS.get(sort_field or "", "created_at")
+    sort_order = ASCENDING if sort_direction == "asc" else DESCENDING
+
+    total = await db.users.count_documents(query)
+    total_pages = math.ceil(total / page_size) if total else 0
+
+    users = (
+        await db.users.find(query)
+        .sort([(sort_key, sort_order), ("_id", ASCENDING)])
+        .skip((page - 1) * page_size)
+        .limit(page_size)
+        .to_list(length=page_size)
+    )
+    await _enrich_users_with_group_names(users, db)
+
+    logger.info(
+        f"Fetched {len(users)}/{total} users "
+        f"(page {page}/{total_pages or 1}, size {page_size})"
+    )
+    return {
+        "items": jsonable_encoder(
+            users, exclude=["password"], custom_encoder={ObjectId: str}
+        ),
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+    }
 
 
 @limiter.limit("120/minute")

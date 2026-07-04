@@ -27,42 +27,111 @@ from app.api.authn import (
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/groups", tags=["Groups"])
 
+# Fields the groups list can be sorted by (maps API name -> stored field).
+_GROUP_SORT_FIELDS = {
+    "name": "name",
+    "created_at": "created_at",
+    "modified_at": "modified_at",
+}
+
+
+async def _enrich_group(group: dict, current_user: User, db) -> dict:
+    """Adds per-group permissions / users / title_count to a raw group document."""
+    # Display permissions inside every group
+    group["permissions"] = await get_user_permissions_in_group(
+        current_user, ObjectId(group["_id"])
+    )
+    # Admin user can also see list of users and api_key
+    if current_user.role == Role.admin:
+        group["users"] = await get_users_in_group(ObjectId(group["_id"]), db)
+    else:
+        group.pop("api_key", None)
+
+    # Replace title_ids with title_count
+    group["title_count"] = len(group["title_ids"])
+    group.pop("title_ids", None)
+    return group
+
 
 @limiter.limit("60/minute;600/hour")
 @router.get("")
 async def list_groups(
     request: Request,
     current_user: Annotated[User, Depends(get_current_user)],
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+    search: Annotated[str | None, Query()] = None,
+    sort_field: Annotated[str | None, Query()] = None,
+    sort_direction: Annotated[str, Query(pattern="^(asc|desc)$")] = "desc",
     db=Depends(get_db),
 ):
-    """Lists all groups user belongs to."""
+    """Lists all groups the user belongs to.
+
+    When any of ``page``/``page_size``/``search`` is provided, returns a
+    paginated envelope ``{items, total, page, page_size, total_pages}`` with
+    server-side search (name/description, and id for a valid ObjectId) and
+    sorting. Otherwise returns the full list unchanged (backward compatible).
+    """
     group_read_permission_ids = [
         ObjectId(perm.group_id)
         for perm in current_user.permissions
         if Permission.read_group in perm.permission
     ]
-    groups = await db.groups.find({"_id": {"$in": group_read_permission_ids}}).to_list(
-        length=None
+
+    query: dict = {"_id": {"$in": group_read_permission_ids}}
+    if search:
+        search = search.strip()
+        if search:
+            escaped = re.escape(search)
+            or_conditions: list[dict] = [
+                {"name": {"$regex": escaped, "$options": "i"}},
+                {"description": {"$regex": escaped, "$options": "i"}},
+            ]
+            if ObjectId.is_valid(search):
+                or_conditions.append({"_id": ObjectId(search)})
+            query["$or"] = or_conditions
+
+    paginate = page is not None or page_size is not None or search is not None
+
+    # Legacy behaviour: return the full (optionally searched) list.
+    if not paginate:
+        groups = await db.groups.find(query).to_list(length=None)
+        for group in groups:
+            await _enrich_group(group, current_user, db)
+        logger.info(
+            f"Listed groups for user ID {current_user.id}: {[str(group['_id']) for group in groups]}"
+        )
+        return jsonable_encoder(groups, custom_encoder={ObjectId: str})
+
+    page = page or 1
+    page_size = page_size or 50
+    sort_key = _GROUP_SORT_FIELDS.get(sort_field or "", "created_at")
+    sort_order = ASCENDING if sort_direction == "asc" else DESCENDING
+
+    total = await db.groups.count_documents(query)
+    total_pages = math.ceil(total / page_size) if total else 0
+
+    groups = (
+        await db.groups.find(query)
+        .sort([(sort_key, sort_order), ("_id", ASCENDING)])
+        .skip((page - 1) * page_size)
+        .limit(page_size)
+        .to_list(length=page_size)
     )
     for group in groups:
-        # Display permissions inside every group
-        group["permissions"] = await get_user_permissions_in_group(
-            current_user, ObjectId(group["_id"])
-        )
-        # Admin user can also see list of users and api_key
-        if current_user.role == Role.admin:
-            group["users"] = await get_users_in_group(ObjectId(group["_id"]), db)
-        else:
-            group.pop("api_key", None)
-
-        # Replace title_ids with title_count
-        group["title_count"] = len(group["title_ids"])
-        group.pop("title_ids", None)
+        await _enrich_group(group, current_user, db)
 
     logger.info(
-        f"Listed groups for user ID {current_user.id}: {[str(group['_id']) for group in groups]}"
+        f"Listed {len(groups)}/{total} groups for user ID {current_user.id} "
+        f"(page {page}/{total_pages or 1}, size {page_size})"
     )
-    return jsonable_encoder(groups, custom_encoder={ObjectId: str})
+    return {
+        "items": jsonable_encoder(groups, custom_encoder={ObjectId: str}),
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+    }
 
 
 # Fields the titles list can be sorted by (maps API name -> stored field).
