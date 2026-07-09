@@ -14,7 +14,7 @@ The backend exposes an API used by the Cropilot frontend and can also be accesse
 
 ## Self-hosting
 
-If you want to self-host, the app can be deployed using Docker Compose or Kubernetes. The production setup includes the backend API, worker, Hatchet queue manager, MongoDB, and frontend services. Cropilot releases are also published as Docker images on Docker Hub under names [trinera/smart-crop](https://hub.docker.com/r/trinera/smart-crop) and [trinera/cropilot-frontend](https://hub.docker.com/r/trinera/cropilot-frontend). 
+If you want to self-host, the app can be deployed using Docker Compose or Kubernetes. The production setup includes the backend API, worker, Hatchet queue manager, MongoDB, and frontend services. Cropilot releases are also published as Docker images on Docker Hub under names [trinera/cropilot](https://hub.docker.com/r/trinera/cropilot) and [trinera/cropilot-frontend](https://hub.docker.com/r/trinera/cropilot-frontend). 
 
 See the [Docker Deployment Guide](./deploy/docker/README.md) or [Kubernetes Deployment Guide](./deploy/kubernetes/README.md) for full setup instructions.
 

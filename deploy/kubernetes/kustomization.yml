@@ -29,8 +29,8 @@ configMapGenerator:
       - APP_DEV_MODE=false
 
 images:
-  - name: local/smart-crop
-    newName: docker.io/trinera/smart-crop
+  - name: local/cropilot
+    newName: docker.io/trinera/cropilot
     newTag: latest
   - name: local/cropilot-frontend
     newName: docker.io/trinera/cropilot-frontend

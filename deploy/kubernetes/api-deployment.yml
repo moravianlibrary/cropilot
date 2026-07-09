@@ -20,7 +20,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: api
-          image: local/smart-crop
+          image: local/cropilot
           imagePullPolicy: IfNotPresent
           securityContext:
             runAsUser: 1000
