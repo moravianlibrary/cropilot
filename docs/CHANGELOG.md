@@ -1,3 +1,29 @@
+# 1.2.4 - 2026-07-08
+
+## Added
+
+- Added paginated, searchable, and sortable listings for groups and users.
+- Added paginated title listing in group detail with search, sorting, and filters.
+- Added MongoDB indexes for default paginated user and title listing queries.
+- Added `bad_split` anomaly flag for incorrectly split two-page spreads.
+- Added a link to the Cropilot Community on Hugging Face for shared crop and rotation models.
+
+## Changes
+
+### API
+
+- Group and user listing endpoints keep the previous full-list response when pagination parameters are not used, and return a paginated envelope when `page`, `page_size`, or `search` is provided.
+- Group title listing now returns pagination metadata (`total`, `page`, `page_size`, `total_pages`) and computes model filter options on the first page.
+
+### Processing
+
+- Reworked anomaly detection to use adaptive per-title thresholds instead of fixed constants.
+- Improved rotation task speed and memory efficiency.
+
+## Fixes
+
+- Integration output continues to send `angle` and `orientation` as separate fields.
+
 # 1.2.3 - 2026-06-25
 
 ## Added
