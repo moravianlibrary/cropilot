@@ -47,3 +47,11 @@ jobs:
           tags: ghcr.io/trineracz/cropilot-backend:dev
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Trigger infra deploy
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.INFRA_REPO_DISPATCH_TOKEN }}
+          repository: trineracz/infra-backend
+          event-type: deploy-cropilot-dev
+          client-payload: '{"image_tag": "dev"}'
