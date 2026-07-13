@@ -33,7 +33,11 @@ LOW_CONF_BASE = _env_float("ANOMALY_LOW_CONF_BASE", 0.5)
 LOW_CONF_MAD_K = _env_float("ANOMALY_LOW_CONF_MAD_K", 3.0)
 
 # Dimensions: robust outlier (median +- k*MAD) + absolute min-area floor.
+# DIM_REL_FLOOR guards against over-flagging in very tight distributions: a
+# deviation must also exceed this fraction of the median to count as an outlier
+# (with tiny MAD, 3.5*MAD can be <2% of the median - not a real anomaly).
 DIM_MAD_K = _env_float("ANOMALY_DIM_MAD_K", 3.5)
+DIM_REL_FLOOR = _env_float("ANOMALY_DIM_REL_FLOOR", 0.15)
 DIM_MIN_AREA = _env_float("ANOMALY_DIM_MIN_AREA", 0.02)  # <2% of scan ~ spurious box
 
 # Missing page: a single page narrow enough to leave room for a second one.
@@ -132,6 +136,11 @@ def flag_dimensions_anomalies(scans: list[Scan]) -> list[Scan]:
     ratio_med, ratio_mad = _median_mad(ratios)
     area_med, area_mad = _median_mad(areas)
 
+    # Effective threshold: k*MAD, but never tighter than DIM_REL_FLOOR of the
+    # median, so tightly clustered titles don't flag harmless ~5% deviations.
+    ratio_thr = max(DIM_MAD_K * ratio_mad, DIM_REL_FLOOR * ratio_med)
+    area_thr = max(DIM_MAD_K * area_mad, DIM_REL_FLOOR * area_med)
+
     for i, scan in enumerate(scans):
         if i in structural:
             continue
@@ -139,8 +148,8 @@ def flag_dimensions_anomalies(scans: list[Scan]) -> list[Scan]:
             area = page.width * page.height
             ratio = page.width / page.height if page.height > 0 else 0.0
 
-            ratio_out = ratio_mad > 0 and abs(ratio - ratio_med) > DIM_MAD_K * ratio_mad
-            area_out = area_mad > 0 and abs(area - area_med) > DIM_MAD_K * area_mad
+            ratio_out = ratio_mad > 0 and abs(ratio - ratio_med) > ratio_thr
+            area_out = area_mad > 0 and abs(area - area_med) > area_thr
             too_small = area < DIM_MIN_AREA
 
             if ratio_out or area_out or too_small:
