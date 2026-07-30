@@ -1,3 +1,22 @@
+# 1.2.5 - 2026-07-30
+
+## Added
+
+### UI
+
+- Redesigned pagination styling.
+- Added bulk rotation and a crop "fit" zoom control in the editor.
+- Redesigned the application settings.
+- Added a default scan-fit preference in settings.
+- Made the crop outline configurable: dashed-outline toggle and outline-thickness setting now apply to all crop outlines.
+
+## Changes
+
+### Processing
+
+- Relaxed the `odd_dimension` anomaly flag so it triggers less often.
+
+
 # 1.2.4 - 2026-07-08
 
 ## Added
