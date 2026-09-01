@@ -70,6 +70,10 @@ class GroupAnyGuard:
         self.required_permissions = set(required_permissions)
 
     def __call__(self, group_id: str, user: User = Depends(get_current_user)):
+        # Admins manage the whole instance, so they pass regardless of per-group grants
+        # (keeps this consistent with the assign endpoints' admin bypass).
+        if user.role == Role.admin:
+            return user
         # If group_id is None, check across all of the user's groups.
         if group_id is None:
             held = set()
@@ -162,6 +166,28 @@ def require_group_any_permission(
         group_id: str = Depends(group_id_provider),
         user: User = Depends(get_current_user),
     ) -> User:
+        return guard(group_id=group_id, user=user)
+
+    return dep
+
+
+def require_group_permission_or_admin(
+    required_permission: Permission,
+    group_id_provider,
+):
+    """Like ``require_group_permission`` but always allows admins.
+
+    Admins manage the whole instance, so they can act on any group even without
+    an explicit per-group grant.
+    """
+    guard = GroupGuard(required_permission)
+
+    async def dep(
+        group_id: str = Depends(group_id_provider),
+        user: User = Depends(get_current_user),
+    ) -> User:
+        if user.role == Role.admin:
+            return user
         return guard(group_id=group_id, user=user)
 
     return dep

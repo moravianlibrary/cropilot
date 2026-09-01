@@ -11,6 +11,7 @@ from app.api.authz import (
     from_group_id,
     from_title_id,
     require_group_permission,
+    require_group_permission_or_admin,
     require_task_state,
 )
 from app.api.setup_db import get_db
@@ -36,7 +37,7 @@ from app.db.schemas.title import (
     TitleCreate,
     TitleUpdate,
 )
-from app.db.schemas.user import Permission, User
+from app.db.schemas.user import Permission, Role, User
 from app.tasks.workflows.predict_workflow import predict_workflow
 
 
@@ -344,7 +345,9 @@ async def get_thumbnail(
     "/{title_id}/assign",
     dependencies=[
         Depends(
-            require_group_permission(Permission.upload, group_id_provider=from_title_id)
+            require_group_permission_or_admin(
+                Permission.upload, group_id_provider=from_title_id
+            )
         )
     ],
 )
@@ -378,6 +381,16 @@ async def assign_title(
     assignee = await db.users.find_one({"_id": ObjectId(payload.user_id)})
     if not assignee:
         raise HTTPException(404, "User not found")
+
+    # Only regular members are assignable — never admins or the public user
+    # (keeps this in sync with the assignable-users picker).
+    if (
+        assignee.get("role") == Role.admin.value
+        or assignee.get("email") == "public@user.cropilot"
+    ):
+        raise HTTPException(
+            400, "Title can only be assigned to a regular group member"
+        )
 
     perms = await get_user_permissions_in_group(
         User.model_validate(assignee), title["group_id"]

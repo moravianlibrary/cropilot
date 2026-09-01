@@ -15,6 +15,7 @@ from app.api.authz import (
     from_group_id,
     require_group_any_permission,
     require_group_permission,
+    require_group_permission_or_admin,
     require_role,
 )
 from app.db.operations.api import (
@@ -308,7 +309,9 @@ async def get_titles(
     "/{group_id}/assignable-users",
     dependencies=[
         Depends(
-            require_group_permission(Permission.upload, group_id_provider=from_group_id)
+            require_group_permission_or_admin(
+                Permission.upload, group_id_provider=from_group_id
+            )
         )
     ],
 )
@@ -324,14 +327,17 @@ async def list_assignable_users(
     if not ObjectId.is_valid(group_id):
         raise HTTPException(400, f"ID '{group_id}' is not a valid ObjectId")
 
+    # Only regular members are assignable — exclude admins and the public user.
     users = await db.users.find(
         {
+            "role": Role.user.value,
+            "email": {"$ne": "public@user.cropilot"},
             "permissions": {
                 "$elemMatch": {
                     "group_id": ObjectId(group_id),
                     "permission": Permission.read_title.value,
                 }
-            }
+            },
         },
         {"_id": 1, "full_name": 1},
     ).to_list(length=None)
@@ -410,6 +416,26 @@ async def bulk_add_group_members(
 
     # Check if we can perform update - if user is already a member of the group, we cannot add them again
     for perm_request in permission_requests:
+        if not ObjectId.is_valid(perm_request.user_id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"ID '{perm_request.user_id}' is not a valid ObjectId",
+            )
+        # Only regular users can be added to a group — never admins.
+        target_user = await db.users.find_one(
+            {"_id": ObjectId(perm_request.user_id)}, {"role": 1}
+        )
+        if not target_user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"User {perm_request.user_id} not found",
+            )
+        if target_user.get("role") == Role.admin.value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Admins cannot be added as group members",
+            )
+
         user_permission = await db.users.find_one(
             {
                 "_id": ObjectId(perm_request.user_id),
