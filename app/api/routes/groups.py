@@ -11,7 +11,12 @@ from fastapi.encoders import jsonable_encoder
 from app.api.limiter import limiter
 from app.api.routes.models import list_models
 from app.api.setup_db import get_db
-from app.api.authz import from_group_id, require_group_permission, require_role
+from app.api.authz import (
+    from_group_id,
+    require_group_any_permission,
+    require_group_permission,
+    require_role,
+)
 from app.db.operations.api import (
     delete_title_from_db_and_storage,
     get_user_permissions_in_group,
@@ -72,13 +77,17 @@ async def list_groups(
     server-side search (name/description, and id for a valid ObjectId) and
     sorting. Otherwise returns the full list unchanged (backward compatible).
     """
-    group_read_permission_ids = [
+    # A group is visible if the user can read the whole group (read_group) or can
+    # at least reach individual titles in it (read_title, e.g. an intern who only
+    # sees titles assigned to them). The title list itself is filtered per-user.
+    group_visible_ids = [
         ObjectId(perm.group_id)
         for perm in current_user.permissions
         if Permission.read_group in perm.permission
+        or Permission.read_title in perm.permission
     ]
 
-    query: dict = {"_id": {"$in": group_read_permission_ids}}
+    query: dict = {"_id": {"$in": group_visible_ids}}
     if search:
         search = search.strip()
         if search:
@@ -148,8 +157,9 @@ _TITLE_SORT_FIELDS = {
     "/{group_id}",
     dependencies=[
         Depends(
-            require_group_permission(
-                Permission.read_group, group_id_provider=from_group_id
+            require_group_any_permission(
+                [Permission.read_group, Permission.read_title],
+                group_id_provider=from_group_id,
             )
         )
     ],
@@ -157,6 +167,7 @@ _TITLE_SORT_FIELDS = {
 async def get_titles(
     request: Request,
     group_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=500)] = 50,
     search: Annotated[str | None, Query()] = None,
@@ -194,6 +205,16 @@ async def get_titles(
 
     # Build the query: always scoped to the group, plus optional filters.
     query: dict = {"group_id": ObjectId(group_id)}
+
+    # Users who can't read the whole group (read_title only, e.g. an intern) see
+    # only the titles assigned to them. Admins and read_group holders see all.
+    group_perms = await get_user_permissions_in_group(current_user, ObjectId(group_id))
+    sees_whole_group = current_user.role == Role.admin or (
+        group_perms is not None and Permission.read_group in group_perms
+    )
+    if not sees_whole_group:
+        query["assigned_to"] = current_user.id
+
     if state:
         query["state"] = state
     if crop_model:
@@ -229,6 +250,7 @@ async def get_titles(
                 "modified_at": 1,
                 "external_id": 1,
                 "settings": 1,
+                "assigned_to": 1,
             },
         )
         .sort([(sort_key, sort_order), ("_id", ASCENDING)])
@@ -236,6 +258,19 @@ async def get_titles(
         .limit(page_size)
         .to_list(length=page_size)
     )
+
+    # Resolve the assignee's id to a display name. Additive `assigned_to_name`
+    # field; `assigned_to` (id) is kept so the UI knows the current assignee.
+    assignee_ids = {t["assigned_to"] for t in titles if t.get("assigned_to")}
+    name_by_id: dict[ObjectId, str | None] = {}
+    if assignee_ids:
+        assignees = await db.users.find(
+            {"_id": {"$in": list(assignee_ids)}},
+            {"full_name": 1},
+        ).to_list(length=len(assignee_ids))
+        name_by_id = {u["_id"]: u.get("full_name") for u in assignees}
+    for title in titles:
+        title["assigned_to_name"] = name_by_id.get(title.get("assigned_to"))
 
     group["titles"] = titles
     group["total"] = total
@@ -249,7 +284,9 @@ async def get_titles(
     if page == 1:
         group_scope = {"group_id": ObjectId(group_id)}
         crop_models = await db.titles.distinct("settings.crop_model", group_scope)
-        rotation_models = await db.titles.distinct("settings.rotation_model", group_scope)
+        rotation_models = await db.titles.distinct(
+            "settings.rotation_model", group_scope
+        )
         group["filter_options"] = {
             "crop_models": sorted(m for m in crop_models if m),
             "rotation_models": sorted(m for m in rotation_models if m),
@@ -264,6 +301,42 @@ async def get_titles(
     return jsonable_encoder(
         group, custom_encoder={ObjectId: str}, exclude=["title_ids", "api_key"]
     )
+
+
+@limiter.limit("60/minute;600/hour")
+@router.get(
+    "/{group_id}/assignable-users",
+    dependencies=[
+        Depends(
+            require_group_permission(Permission.upload, group_id_provider=from_group_id)
+        )
+    ],
+)
+async def list_assignable_users(
+    request: Request,
+    group_id: str,
+    db=Depends(get_db),
+):
+    """Lists group members a title can be assigned to (anyone with ``read_title``).
+
+    Requires ``upload`` (a manager) on the group. Returns ``{_id, full_name}``.
+    """
+    if not ObjectId.is_valid(group_id):
+        raise HTTPException(400, f"ID '{group_id}' is not a valid ObjectId")
+
+    users = await db.users.find(
+        {
+            "permissions": {
+                "$elemMatch": {
+                    "group_id": ObjectId(group_id),
+                    "permission": Permission.read_title.value,
+                }
+            }
+        },
+        {"_id": 1, "full_name": 1},
+    ).to_list(length=None)
+
+    return jsonable_encoder(users, custom_encoder={ObjectId: str})
 
 
 @limiter.limit("60/minute;600/hour")
@@ -488,10 +561,7 @@ async def update_group(
     update_data = {k: v for k, v in group.model_dump().items() if v is not None}
     if update_data.get("default_settings"):
         models = await list_models()
-        if (
-            update_data["default_settings"]["crop_model"]
-            not in models["crop_models"]
-        ):
+        if update_data["default_settings"]["crop_model"] not in models["crop_models"]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Model '{update_data['default_settings']['crop_model']}' does not exist",

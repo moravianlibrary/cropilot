@@ -321,5 +321,10 @@ async def delete_user(
             detail="Cannot delete self",
         )
     await db.users.delete_one({"_id": ObjectId(user_id)})
+    # Clear any title assignments pointing at the deleted user.
+    await db.titles.update_many(
+        {"assigned_to": ObjectId(user_id)},
+        {"$set": {"assigned_to": None}},
+    )
     logger.info(f"Deleted user ID {user_id}")
     return {"detail": "User deleted"}

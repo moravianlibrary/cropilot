@@ -63,6 +63,34 @@ class GroupGuard:
         )
 
 
+class GroupAnyGuard:
+    """Guard that passes if the user holds ANY of the required permissions in the group."""
+
+    def __init__(self, required_permissions: list[Permission]):
+        self.required_permissions = set(required_permissions)
+
+    def __call__(self, group_id: str, user: User = Depends(get_current_user)):
+        # If group_id is None, check across all of the user's groups.
+        if group_id is None:
+            held = set()
+            for perm in user.permissions:
+                held.update(perm.permission)
+            if held & self.required_permissions:
+                return user
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions",
+            )
+        for perm in user.permissions:
+            if str(perm.group_id) == group_id:
+                if self.required_permissions & set(perm.permission):
+                    return user
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient group permissions",
+        )
+
+
 async def from_title_id(title_id: str, db=Depends(get_db)):
     """Group id provider: Fetch group ID from title ID."""
     if not ObjectId.is_valid(title_id):
@@ -105,6 +133,30 @@ def require_group_permission(
         A dependency that raises HTTPException if the user lacks permission.
     """
     guard = GroupGuard(required_permission)
+
+    async def dep(
+        group_id: str = Depends(group_id_provider),
+        user: User = Depends(get_current_user),
+    ) -> User:
+        return guard(group_id=group_id, user=user)
+
+    return dep
+
+
+def require_group_any_permission(
+    required_permissions: list[Permission],
+    group_id_provider,
+):
+    """Dependency that passes if the user holds ANY of ``required_permissions`` in the group.
+
+    Args:
+        required_permissions (list[Permission]): Permissions, any of which suffices.
+        group_id_provider: A dependency that provides the group ID.
+
+    Returns:
+        A dependency that raises HTTPException if the user lacks all permissions.
+    """
+    guard = GroupAnyGuard(required_permissions)
 
     async def dep(
         group_id: str = Depends(group_id_provider),

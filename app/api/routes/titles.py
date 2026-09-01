@@ -22,6 +22,7 @@ from app.api.utils import (
     sniff_media_type,
 )
 from app.db.operations.api import (
+    get_user_permissions_in_group,
     link_titles_to_group_bulk,
     set_default_title_params,
     delete_title_from_db_and_storage,
@@ -31,6 +32,7 @@ from app.db.schemas.title import (
     ScanUpdate,
     TaskState,
     Title,
+    TitleAssign,
     TitleCreate,
     TitleUpdate,
 )
@@ -335,6 +337,63 @@ async def get_thumbnail(
 
     thumbnail = resize_image(scan["filename"])
     return Response(content=thumbnail, media_type="image/jpeg")
+
+
+@limiter.limit("60/minute;600/hour")
+@router.patch(
+    "/{title_id}/assign",
+    dependencies=[
+        Depends(
+            require_group_permission(Permission.upload, group_id_provider=from_title_id)
+        )
+    ],
+)
+async def assign_title(
+    request: Request,
+    title_id: str,
+    payload: TitleAssign,
+    db=Depends(get_db),
+):
+    """Assigns a title to a group member (or clears it when ``user_id`` is null).
+
+    Requires ``upload`` (a manager). The assignee must be a member of the title's
+    group (hold ``read_title`` there). Returns the new ``assigned_to`` id and name.
+    """
+    if not ObjectId.is_valid(title_id):
+        raise HTTPException(400, f"ID '{title_id}' is not a valid ObjectId")
+    title = await db.titles.find_one({"_id": ObjectId(title_id)}, {"group_id": 1})
+    if not title:
+        raise HTTPException(404, "Title not found")
+
+    # Clear the assignment.
+    if payload.user_id is None:
+        await db.titles.update_one(
+            {"_id": ObjectId(title_id)}, {"$set": {"assigned_to": None}}
+        )
+        logger.info(f"Cleared assignment for title ID: {title_id}")
+        return {"assigned_to": None, "assigned_to_name": None}
+
+    if not ObjectId.is_valid(payload.user_id):
+        raise HTTPException(400, f"ID '{payload.user_id}' is not a valid ObjectId")
+    assignee = await db.users.find_one({"_id": ObjectId(payload.user_id)})
+    if not assignee:
+        raise HTTPException(404, "User not found")
+
+    perms = await get_user_permissions_in_group(
+        User.model_validate(assignee), title["group_id"]
+    )
+    if not perms or Permission.read_title not in perms:
+        raise HTTPException(400, "User is not a member of the title's group")
+
+    await db.titles.update_one(
+        {"_id": ObjectId(title_id)},
+        {"$set": {"assigned_to": ObjectId(payload.user_id)}},
+    )
+    logger.info(f"Assigned title ID {title_id} to user ID {payload.user_id}")
+    return {
+        "assigned_to": str(payload.user_id),
+        "assigned_to_name": assignee.get("full_name"),
+    }
 
 
 @limiter.limit("60/minute;600/hour")

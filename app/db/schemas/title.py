@@ -87,6 +87,12 @@ class TitleUpdate(BaseModel):
     settings: Settings | None = None
 
 
+class TitleAssign(BaseModel):
+    """Body for assigning a title to a user (``None`` clears the assignment)."""
+
+    user_id: str | None = None
+
+
 class Title(BaseModelWithId):
     external_id: str | None = None
     filelist: list[str] = Field(default_factory=list)
@@ -94,6 +100,7 @@ class Title(BaseModelWithId):
     created_at: datetime = Field(default_factory=datetime.now)
     modified_at: datetime = Field(default_factory=datetime.now)
     modified_by: str | None = None
+    assigned_to: ObjectIdField | None = None
     state: TaskState = Field(default=TaskState.new)
     scans: list[Scan] = Field(default_factory=list)
 
