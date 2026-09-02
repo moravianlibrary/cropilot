@@ -8,6 +8,7 @@
 - `POST /events`: batched frontend usage events (editor sessions, heartbeats, shortcuts, mouse actions, filters, saves, settings snapshots). Stored in `usage_events` with a TTL index.
 - `Title.review_stats`: prediction-vs-edit metrics (edited scans ratio, mean IoU, center shift, angle delta, pages added/removed, orientation changes), recomputed on every save and cleared on reset / settings change.
 - `Title.ready_at`, `user_approved_at`, `completed_at` lifecycle timestamps for review turnaround statistics.
+- Daily statistics snapshots: the nightly `maintenance` cron now also stores the previous day's aggregates in `stats_snapshots` (no TTL, part of the dump) and as `<dump>/stats/<day>.json`, so history survives the events TTL. Readable via `GET /stats/snapshots`; `app.scripts.stats_snapshot` recomputes days by hand.
 
 ### UI
 

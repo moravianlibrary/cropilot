@@ -100,6 +100,8 @@ The frontend sends usage events (editor sessions, heartbeats, shortcuts, mouse a
 
 Raw events expire via a TTL index after `USAGE_EVENTS_TTL_DAYS` (default 180). Prediction-quality metrics live on the title (`review_stats`) and are not affected by the TTL. Set `APP_TELEMETRY_ENABLED=false` on the frontend to stop sending events.
 
+Long-term history is kept by the `maintenance` Hatchet cron (2 AM): next to the `mongodump` it runs `stats_snapshot`, which stores the previous day's aggregates in the `stats_snapshots` collection (one document per day, no TTL, so it is part of the dump) and writes `<SCANS_VOLUME_PATH>/mongodump/stats/<day>.json`. `GET /stats/snapshots?from=&to=` returns them; `uv run --env-file .env -m app.scripts.stats_snapshot --days 30` (re)computes past days, e.g. after the first deploy.
+
 ## Cheat sheet
 
 ```bash

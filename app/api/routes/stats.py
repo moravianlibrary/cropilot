@@ -1,6 +1,6 @@
 """Admin-only product usage statistics. Aggregates only; see operations/stats.py."""
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import Annotated, Literal
 
 from bson import ObjectId
@@ -11,6 +11,7 @@ from app.api.limiter import limiter
 from app.api.setup_db import get_db
 from app.db.operations import stats as ops
 from app.db.operations.stats import GroupBy, StatsFilter, make_filter
+from app.db.operations.stats_snapshots import list_snapshots
 from app.db.schemas.user import Role
 
 router = APIRouter(
@@ -104,3 +105,23 @@ async def get_settings(
             raise HTTPException(400, "Invalid group_id")
         gid = ObjectId(group_id)
     return await ops.settings_distribution(gid, db)
+
+
+@limiter.limit("60/minute")
+@router.get("/snapshots")
+async def get_snapshots(
+    request: Request,
+    from_: Annotated[date | None, Query(alias="from")] = None,
+    to: date | None = None,
+    db=Depends(get_db),
+):
+    """Daily statistics snapshots stored by the maintenance cron (long-term history)."""
+    to = to or date.today()
+    from_ = from_ or (to - timedelta(days=30))
+    if to - from_ > timedelta(days=731):
+        raise HTTPException(400, "Range longer than 731 days")
+    try:
+        items = await list_snapshots(from_, to, db)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"from": from_, "to": to, "items": items}
