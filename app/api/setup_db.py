@@ -89,11 +89,6 @@ async def create_indexes(db):
         db, "usage_events", "ts", settings_api.usage_events_ttl_days * 24 * 3600
     )
 
-    # Daily statistics snapshots written by the maintenance cron (one per day).
-    await db.stats_snapshots.create_index(
-        [("day", 1)], unique=True, name="stats_snapshots_day"
-    )
-
 
 async def _ensure_ttl_index(db, collection: str, field: str, ttl_seconds: int):
     """Create a TTL index, updating its expiry if it already exists with another value.

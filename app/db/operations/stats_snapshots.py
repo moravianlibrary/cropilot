@@ -1,15 +1,16 @@
-"""Daily snapshots of the admin statistics.
+"""Latest statistics snapshot, refreshed by the maintenance cron.
 
 Raw usage events expire (TTL) and the nightly mongodump overwrites itself, so
-the aggregates would eventually be lost. The maintenance cron therefore stores
-one snapshot per day in ``stats_snapshots`` (no TTL, included in the dump) and
-writes the same document as a JSON file next to the dump.
+the maintenance cron stores the *current* aggregates in a single document
+(``stats_snapshots`` / ``_id = "latest"``, no TTL, included in the dump) and
+writes the same document to ``<dump>/stats/latest.json``. Both are overwritten
+on every run; no history accumulates.
 """
 
 import json
 import logging
 import os
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 
 from bson import ObjectId
 from fastapi.encoders import jsonable_encoder
@@ -18,22 +19,30 @@ from app.db.operations import stats as ops
 
 logger = logging.getLogger(__name__)
 
+SNAPSHOT_ID = "latest"
 SNAPSHOT_SUBDIR = "stats"
+SNAPSHOT_FILENAME = "latest.json"
+# Same default window as the Statistics page.
+SNAPSHOT_WINDOW_DAYS = 30
 
 
-def snapshot_window(day: date) -> tuple[datetime, datetime]:
-    """[00:00 of ``day``, 00:00 of the next day) in the repo's naive local time."""
-    start = datetime.combine(day, datetime.min.time())
-    return start, start + timedelta(days=1)
+def snapshot_window(
+    now: datetime, days: int = SNAPSHOT_WINDOW_DAYS
+) -> tuple[datetime, datetime]:
+    """[now - days, now) in the repo's naive local time."""
+    return now - timedelta(days=days), now
 
 
-def snapshot_path(directory: str, day: date) -> str:
-    return os.path.join(directory, SNAPSHOT_SUBDIR, f"{day.isoformat()}.json")
+def snapshot_path(directory: str) -> str:
+    return os.path.join(directory, SNAPSHOT_SUBDIR, SNAPSHOT_FILENAME)
 
 
-async def build_daily_snapshot(day: date, db) -> dict:
-    """Compute every /stats aggregate for one calendar day."""
-    start, end = snapshot_window(day)
+async def build_snapshot(
+    db, days: int = SNAPSHOT_WINDOW_DAYS, now: datetime | None = None
+) -> dict:
+    """Compute every /stats aggregate over the trailing ``days`` window."""
+    now = now or datetime.now()
+    start, end = snapshot_window(now, days)
     f = ops.StatsFilter(from_=start, to=end)
 
     review_quality = {
@@ -41,10 +50,11 @@ async def build_daily_snapshot(day: date, db) -> dict:
         for group_by in ("group", "crop_model", "rotation_model")
     }
     return {
-        "day": day.isoformat(),
+        "_id": SNAPSHOT_ID,
+        "computed_at": now,
+        "window_days": days,
         "from": start,
         "to": end,
-        "created_at": datetime.now(),
         "overview": await ops.overview(f, db),
         "review_quality": review_quality,
         "anomalies": {
@@ -52,21 +62,21 @@ async def build_daily_snapshot(day: date, db) -> dict:
             "group": await ops.anomalies(f, "group", db),
         },
         "editor_usage": {"group": await ops.editor_usage(f, "group", db)},
-        # Latest settings per user as of the snapshot (not date-filtered).
+        # Latest settings per user (not date-filtered).
         "settings": await ops.settings_distribution(None, db),
     }
 
 
-async def store_daily_snapshot(day: date, db) -> dict:
-    """Compute and upsert the snapshot for ``day`` (idempotent per day)."""
-    doc = await build_daily_snapshot(day, db)
-    await db.stats_snapshots.update_one({"day": doc["day"]}, {"$set": doc}, upsert=True)
+async def store_snapshot(db, days: int = SNAPSHOT_WINDOW_DAYS) -> dict:
+    """Compute the current aggregates and replace the single stored document."""
+    doc = await build_snapshot(db, days)
+    await db.stats_snapshots.replace_one({"_id": SNAPSHOT_ID}, doc, upsert=True)
     return doc
 
 
 def write_snapshot_file(doc: dict, directory: str) -> str:
-    """Write the snapshot as pretty JSON under ``<directory>/stats/<day>.json``."""
-    path = snapshot_path(directory, date.fromisoformat(doc["day"]))
+    """Overwrite ``<directory>/stats/latest.json`` with the snapshot."""
+    path = snapshot_path(directory)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     payload = jsonable_encoder(doc, custom_encoder={ObjectId: str})
     payload.pop("_id", None)
@@ -75,12 +85,6 @@ def write_snapshot_file(doc: dict, directory: str) -> str:
     return path
 
 
-async def list_snapshots(from_day: date, to_day: date, db) -> list[dict]:
-    """Snapshots with ``from_day <= day <= to_day``, oldest first."""
-    if from_day > to_day:
-        raise ValueError("'from' must not be after 'to'")
-    cursor = db.stats_snapshots.find(
-        {"day": {"$gte": from_day.isoformat(), "$lte": to_day.isoformat()}},
-        {"_id": 0},
-    ).sort("day", 1)
-    return await cursor.to_list(length=None)
+async def get_snapshot(db) -> dict | None:
+    doc = await db.stats_snapshots.find_one({"_id": SNAPSHOT_ID}, {"_id": 0})
+    return doc
