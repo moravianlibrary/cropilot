@@ -186,7 +186,8 @@ async def get_titles(
         page_size: Number of titles per page.
         search: Case-insensitive text matched against external_id / crop model
             (and the title ID when it is a valid ObjectId).
-        sort_field: One of external_id, created_at, modified_at, state.
+        sort_field: One of external_id, created_at, modified_at, state,
+            assigned_to_name.
         sort_direction: asc or desc.
         state, crop_model, rotation_model: Optional exact-match filters.
 
@@ -234,44 +235,79 @@ async def get_titles(
                 or_conditions.append({"_id": ObjectId(search)})
             query["$or"] = or_conditions
 
-    # Resolve sorting (defaults to newest first).
+    # Resolve sorting (defaults to newest first). `assigned_to_name` is special:
+    # the name isn't stored on the title (it lives in `users`), so it can't be
+    # ordered by a plain `.find().sort()` — it needs a $lookup (handled below).
+    sort_by_assignee = sort_field == "assigned_to_name"
     sort_key = _TITLE_SORT_FIELDS.get(sort_field or "", "created_at")
     sort_order = ASCENDING if sort_direction == "asc" else DESCENDING
 
     total = await db.titles.count_documents(query)
     total_pages = math.ceil(total / page_size) if total else 0
 
-    titles = (
-        await db.titles.find(
-            query,
-            {
-                "_id": 1,
-                "state": 1,
-                "created_at": 1,
-                "modified_at": 1,
-                "external_id": 1,
-                "settings": 1,
-                "assigned_to": 1,
-            },
-        )
-        .sort([(sort_key, sort_order), ("_id", ASCENDING)])
-        .skip((page - 1) * page_size)
-        .limit(page_size)
-        .to_list(length=page_size)
-    )
+    projection = {
+        "_id": 1,
+        "state": 1,
+        "created_at": 1,
+        "modified_at": 1,
+        "external_id": 1,
+        "settings": 1,
+        "assigned_to": 1,
+    }
 
-    # Resolve the assignee's id to a display name. Additive `assigned_to_name`
-    # field; `assigned_to` (id) is kept so the UI knows the current assignee.
-    assignee_ids = {t["assigned_to"] for t in titles if t.get("assigned_to")}
-    name_by_id: dict[ObjectId, str | None] = {}
-    if assignee_ids:
-        assignees = await db.users.find(
-            {"_id": {"$in": list(assignee_ids)}},
-            {"full_name": 1},
-        ).to_list(length=len(assignee_ids))
-        name_by_id = {u["_id"]: u.get("full_name") for u in assignees}
-    for title in titles:
-        title["assigned_to_name"] = name_by_id.get(title.get("assigned_to"))
+    if sort_by_assignee:
+        # Sort by the assignee's display name. Because that name is resolved from
+        # the `users` collection (not stored on the title), order globally — before
+        # paging — with an aggregation that $lookups the name, sorts, then pages.
+        titles = await db.titles.aggregate(
+            [
+                {"$match": query},
+                {
+                    "$lookup": {
+                        "from": "users",
+                        "localField": "assigned_to",
+                        "foreignField": "_id",
+                        "as": "_assignee",
+                    }
+                },
+                {
+                    "$addFields": {
+                        "assigned_to_name": {
+                            "$ifNull": [
+                                {"$arrayElemAt": ["$_assignee.full_name", 0]},
+                                None,
+                            ]
+                        }
+                    }
+                },
+                {"$sort": {"assigned_to_name": sort_order, "_id": ASCENDING}},
+                {"$skip": (page - 1) * page_size},
+                {"$limit": page_size},
+                {"$project": {**projection, "assigned_to_name": 1}},
+            ]
+        ).to_list(length=page_size)
+    else:
+        titles = (
+            await db.titles.find(query, projection)
+            .sort([(sort_key, sort_order), ("_id", ASCENDING)])
+            .skip((page - 1) * page_size)
+            .limit(page_size)
+            .to_list(length=page_size)
+        )
+
+        # Resolve the assignee's id to a display name. Additive `assigned_to_name`
+        # field; `assigned_to` (id) is kept so the UI knows the current assignee.
+        # (The assignee-sorted path above already resolves this via the $lookup.)
+        assignee_ids = {t["assigned_to"] for t in titles if t.get("assigned_to")}
+        name_by_id: dict[ObjectId, str | None] = {}
+        if assignee_ids:
+            assignees = await db.users.find(
+                {"_id": {"$in": list(assignee_ids)}},
+                {"full_name": 1},
+            ).to_list(length=len(assignee_ids))
+            name_by_id = {u["_id"]: u.get("full_name") for u in assignees}
+        for title in titles:
+            title["assigned_to_name"] = name_by_id.get(title.get("assigned_to"))
 
     group["titles"] = titles
     group["total"] = total
