@@ -1,7 +1,9 @@
-from datetime import datetime
 import logging
-from app.db.schemas.title import Scan, TaskState, Title
+from datetime import datetime
+
 from bson import ObjectId
+
+from app.db.schemas.title import Scan, TaskState, Title
 
 logger = logging.getLogger(__name__)
 
@@ -10,10 +12,12 @@ def db_update_task_state(title_id: str, new_state: TaskState, db):
     """Update the state of a Hatchet task, store into Title object."""
     if not ObjectId.is_valid(title_id):
         raise ValueError(f"Invalid title id: {title_id}")
-    result = db.titles.update_one(
-        {"_id": ObjectId(title_id)},
-        {"$set": {"state": new_state, "modified_at": datetime.now()}},
-    )
+    now = datetime.now()
+    update = {"state": new_state, "modified_at": now}
+    if new_state == TaskState.ready:
+        # Start of the review window (used for turnaround statistics).
+        update["ready_at"] = now
+    result = db.titles.update_one({"_id": ObjectId(title_id)}, {"$set": update})
     if result.matched_count == 0:
         raise Exception(f"Title not found: {title_id}")
 

@@ -1,15 +1,16 @@
-import shutil
-import certifi
 import logging
-from fastapi.security import APIKeyHeader, HTTPBearer, OAuth2PasswordBearer
-from app.db.schemas.user import Maintains, Permission, User
-from pymongo import AsyncMongoClient
-from contextlib import asynccontextmanager
 import os
-from pwdlib import PasswordHash
-from app.deps import settings_db
+import shutil
+from contextlib import asynccontextmanager
 
-from app.db.schemas.user import Role
+import certifi
+from fastapi.security import APIKeyHeader, HTTPBearer, OAuth2PasswordBearer
+from pwdlib import PasswordHash
+from pymongo import AsyncMongoClient
+from pymongo.errors import OperationFailure
+
+from app.db.schemas.user import Maintains, Permission, Role, User
+from app.deps import settings_api, settings_db
 
 logger = logging.getLogger(__name__)
 client: AsyncMongoClient | None = None
@@ -59,9 +60,7 @@ async def create_indexes(db):
     await db.users.create_index([("role", 1)], name="role_index")
     # Backs the paginated users listing (get_all_users): default newest-first sort
     # with _id as a stable tiebreaker for skip/limit pagination.
-    await db.users.create_index(
-        [("created_at", -1), ("_id", 1)], name="users_created"
-    )
+    await db.users.create_index([("created_at", -1), ("_id", 1)], name="users_created")
     # Backs the paginated titles listing (get_titles): scoped to a group and
     # sorted newest-first, with _id as a stable tiebreaker. Makes the default
     # sort + skip/limit + count index-backed instead of a collection scan.
@@ -69,6 +68,49 @@ async def create_indexes(db):
         [("group_id", 1), ("created_at", -1), ("_id", 1)],
         name="titles_group_created",
     )
+    # Back the /stats aggregations, which filter titles by date range and
+    # optionally by group, and count them per state.
+    await db.titles.create_index(
+        [("state", 1), ("modified_at", -1)], name="titles_state_modified"
+    )
+    await db.titles.create_index(
+        [("group_id", 1), ("modified_at", -1)], name="titles_group_modified"
+    )
+
+    # Usage events (frontend telemetry).
+    events = db.usage_events
+    await events.create_index([("type", 1), ("ts", -1)], name="events_type_ts")
+    await events.create_index([("group_id", 1), ("ts", -1)], name="events_group_ts")
+    await events.create_index(
+        [("user_id", 1), ("type", 1), ("ts", -1)], name="events_user_type_ts"
+    )
+    await events.create_index([("session_id", 1), ("ts", 1)], name="events_session_ts")
+    await _ensure_ttl_index(
+        db, "usage_events", "ts", settings_api.usage_events_ttl_days * 24 * 3600
+    )
+
+
+async def _ensure_ttl_index(db, collection: str, field: str, ttl_seconds: int):
+    """Create a TTL index, updating its expiry if it already exists with another value.
+
+    Mongo refuses to create an index whose options differ from an existing one
+    with the same name (IndexOptionsConflict, code 85); the supported way to
+    change a TTL is ``collMod``.
+    """
+    name = f"{collection}_ttl"
+    try:
+        await db[collection].create_index(
+            [(field, 1)], expireAfterSeconds=ttl_seconds, name=name
+        )
+    except OperationFailure as e:
+        if e.code != 85:
+            raise
+        await db.command(
+            "collMod",
+            collection,
+            index={"name": name, "expireAfterSeconds": ttl_seconds},
+        )
+        logger.info(f"Updated TTL of {collection}.{field} to {ttl_seconds}s")
 
 
 async def create_admin(db):
@@ -140,8 +182,10 @@ async def copy_default_models():
         dest = os.path.join(crop_model_path, "default.pt")
         shutil.copy(source, dest)
         logger.info(f"Copied default model from '{source}' to '{dest}'")
-    
-    rotation_model_path = os.path.join(os.environ["MODELS_VOLUME_PATH"], "rotation_model")
+
+    rotation_model_path = os.path.join(
+        os.environ["MODELS_VOLUME_PATH"], "rotation_model"
+    )
     if not os.path.exists(rotation_model_path):
         os.makedirs(rotation_model_path)
         logger.info(f"Models volume directory '{rotation_model_path}' created.")

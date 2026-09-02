@@ -1,14 +1,15 @@
 from fastapi import FastAPI
-from prometheus_fastapi_instrumentator import Instrumentator
-from app.api import limiter
-from app.api.routes import groups, integration, titles, users, models
-from app.api.setup_db import lifespan
-from fastapi.openapi.utils import get_openapi
-from app.db.schemas.title import TaskState
 from fastapi.middleware.cors import CORSMiddleware
-from app.logs import setup_logging
+from fastapi.openapi.utils import get_openapi
+from prometheus_fastapi_instrumentator import Instrumentator
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+
+from app.api import limiter
+from app.api.routes import events, groups, integration, models, stats, titles, users
+from app.api.setup_db import lifespan
+from app.db.schemas.title import TaskState
+from app.logs import setup_logging
 
 setup_logging()
 
@@ -16,6 +17,10 @@ setup_logging()
 app = FastAPI(title="Cropilot API", lifespan=lifespan)
 Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 app.include_router(integration.router)
+# /events and /stats must be registered before the root-prefixed titles router,
+# whose GET /{title_id} would otherwise swallow them.
+app.include_router(events.router)
+app.include_router(stats.router)
 app.include_router(titles.router)
 app.include_router(users.router)
 app.include_router(groups.router)

@@ -1,3 +1,29 @@
+# 1.2.6 - 2026-09-02
+
+## Added
+
+### API
+
+- Admin-only `/stats/*` endpoints: `overview`, `review-quality`, `anomalies`, `editor-usage`, `settings`. All results are aggregated per group / model / month; there is no per-user breakdown.
+- `POST /events`: batched frontend usage events (editor sessions, heartbeats, shortcuts, mouse actions, filters, saves, settings snapshots). Stored in `usage_events` with a TTL index.
+- `Title.review_stats`: prediction-vs-edit metrics (edited scans ratio, mean IoU, center shift, angle delta, pages added/removed, orientation changes), recomputed on every save and cleared on reset / settings change.
+- `Title.ready_at`, `user_approved_at`, `completed_at` lifecycle timestamps for review turnaround statistics.
+
+### UI
+
+- New admin tab **Statistiky** with prediction quality, anomaly precision, editor usage and settings distribution.
+
+## Changes
+
+- The integration `complete` endpoint now reads the edited-scan ratio from `review_stats` (same 10 % retrain threshold as before) and stores `completed_at`.
+
+## Deployment
+
+- New env var `USAGE_EVENTS_TTL_DAYS` (default 180) on the API. Changing it later is handled automatically at startup via `collMod`.
+- No Mongo shell migration is needed. To populate metrics for titles edited before this release, run once:
+  `uv run --env-file .env -m app.scripts.backfill_review_stats` (add `--dry-run` to preview, `--approximate-timestamps` to fill completion timestamps from `modified_at`).
+
+
 # 1.2.5 - 2026-07-30
 
 ## Added

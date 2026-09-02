@@ -13,6 +13,8 @@ class SettingsAPI(BaseSettings):
     pwd_secret_key: str | None = os.getenv("PWD_SECRET", None)
     pwd_algorithm: str = os.getenv("PWD_ALGORITHM", "HS256")
     pwd_access_token_expire_minutes: int = 60 * 24 * 100  # 100 days
+    # Retention of raw usage events (TTL index on usage_events.ts).
+    usage_events_ttl_days: int = int(os.getenv("USAGE_EVENTS_TTL_DAYS", "180"))
 
 
 settings_db = SettingsDB()

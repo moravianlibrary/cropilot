@@ -138,6 +138,7 @@ services:
       SCANS_VOLUME_PATH: /scan_data
       MODELS_VOLUME_PATH: /models
       PWD_SECRET: ${PWD_SECRET}
+      USAGE_EVENTS_TTL_DAYS: 180
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8000/healthz || exit 1"]
       interval: 60s

@@ -1,11 +1,12 @@
-from datetime import datetime
 import logging
 import os
+from datetime import datetime
 from typing import Annotated
+
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile
 from fastapi.encoders import jsonable_encoder
-from app.api.limiter import limiter
+
 from app.api.authn import get_current_user
 from app.api.authz import (
     from_group_id,
@@ -14,6 +15,7 @@ from app.api.authz import (
     require_group_permission_or_admin,
     require_task_state,
 )
+from app.api.limiter import limiter
 from app.api.setup_db import get_db
 from app.api.utils import (
     format_pages,
@@ -22,11 +24,12 @@ from app.api.utils import (
     save_scan_to_storage,
     sniff_media_type,
 )
+from app.core.review_metrics import compute_review_stats
 from app.db.operations.api import (
+    delete_title_from_db_and_storage,
     get_user_permissions_in_group,
     link_titles_to_group_bulk,
     set_default_title_params,
-    delete_title_from_db_and_storage,
 )
 from app.db.schemas.title import (
     Scan,
@@ -39,7 +42,6 @@ from app.db.schemas.title import (
 )
 from app.db.schemas.user import Permission, Role, User
 from app.tasks.workflows.predict_workflow import predict_workflow
-
 
 UPLOAD_VOLUME_PATH = os.getenv("SCANS_VOLUME_PATH")
 router = APIRouter(prefix="", tags=["Books"])
@@ -388,9 +390,7 @@ async def assign_title(
         assignee.get("role") == Role.admin.value
         or assignee.get("email") == "public@user.cropilot"
     ):
-        raise HTTPException(
-            400, "Title can only be assigned to a regular group member"
-        )
+        raise HTTPException(400, "Title can only be assigned to a regular group member")
 
     perms = await get_user_permissions_in_group(
         User.model_validate(assignee), title["group_id"]
@@ -458,16 +458,28 @@ async def update_pages(
             if result.matched_count == 0:
                 raise HTTPException(404, f"Scan with id {scan.id} not found")
 
-    # Update title state to user_approved
+    # Recompute prediction-vs-edit metrics over the whole title so the stored
+    # review_stats always reflect the latest saved state.
+    now = datetime.now()
+    title_doc = await db.titles.find_one({"_id": ObjectId(title_id)})
+    review_stats = compute_review_stats(Title.model_validate(title_doc), now=now)
+
+    # Update title state to user_approved. Pipeline update so user_approved_at
+    # is only set on the first save; $literal keeps stored strings from being
+    # interpreted as field paths.
     await db.titles.update_one(
         {"_id": ObjectId(title_id)},
-        {
-            "$set": {
-                "state": TaskState.user_approved,
-                "modified_at": datetime.now(),
-                "modified_by": current_user.email,
+        [
+            {
+                "$set": {
+                    "state": TaskState.user_approved.value,
+                    "modified_at": now,
+                    "modified_by": {"$literal": current_user.email},
+                    "review_stats": {"$literal": review_stats.model_dump()},
+                    "user_approved_at": {"$ifNull": ["$user_approved_at", now]},
+                }
             }
-        },
+        ],
     )
     logger.info(
         f"{current_user.email} patched {len(scans)} scans and updated state to user_approved for title ID: {title_id}"
@@ -523,6 +535,7 @@ async def reset_predictions(
         {
             "$set": {
                 "scans.$[].user_edited_pages": None,
+                "review_stats": None,
                 "modified_at": datetime.now(),
                 "modified_by": current_user.email,
             }
@@ -571,13 +584,19 @@ async def update_title(
     update_data["modified_by"] = current_user.email
     if update_data.get("settings"):
         update_data["state"] = TaskState.new
-        # Clear predicted and user edited pages if settings are updated
+        # Clear predicted and user edited pages if settings are updated; this
+        # starts a new review cycle, so the review metrics and lifecycle
+        # timestamps are reset too.
         result = await db.titles.update_one(
             {"_id": ObjectId(title_id)},
             {
                 "$set": {
                     "scans.$[].predicted_pages": [],
                     "scans.$[].user_edited_pages": None,
+                    "review_stats": None,
+                    "ready_at": None,
+                    "user_approved_at": None,
+                    "completed_at": None,
                 }
             },
         )

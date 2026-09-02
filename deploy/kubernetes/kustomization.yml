@@ -23,10 +23,12 @@ configMapGenerator:
       - MODELS_VOLUME_PATH=/models
       - HATCHET_CLIENT_HOST_PORT=hatchet-engine.hatchet.svc.cluster.local:7070
       - HATCHET_CLIENT_TLS_STRATEGY=none
+      - USAGE_EVENTS_TTL_DAYS=180
   - name: cropilot-frontend-env
     literals:
       - APP_DATA_SERVER_URL=http://api.cropilot.local
       - APP_DEV_MODE=false
+      - APP_TELEMETRY_ENABLED=true
 
 images:
   - name: local/cropilot

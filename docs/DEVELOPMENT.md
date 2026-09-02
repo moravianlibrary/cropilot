@@ -94,6 +94,12 @@ http://127.0.0.1:8888
 ```
 --- 
 
+## Usage statistics & privacy
+
+The frontend sends usage events (editor sessions, heartbeats, shortcuts, mouse actions, filters, saves, editor-settings snapshots) to `POST /events`. Each event stores the authenticated `user_id` (taken from the JWT, never from the client) so that distinct-user counts and "latest settings per user" can be computed, but the admin `/stats/*` endpoints only ever return aggregates per group / model / month. Do not add per-user read endpoints.
+
+Raw events expire via a TTL index after `USAGE_EVENTS_TTL_DAYS` (default 180). Prediction-quality metrics live on the title (`review_stats`) and are not affected by the TTL. Set `APP_TELEMETRY_ENABLED=false` on the frontend to stop sending events.
+
 ## Cheat sheet
 
 ```bash

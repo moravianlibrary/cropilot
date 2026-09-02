@@ -1,30 +1,32 @@
-from datetime import datetime
 import logging
 import os
+from datetime import datetime
 from urllib.parse import urljoin
+
+import grpc
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
-import grpc
+from pymongo.errors import DuplicateKeyError
+from starlette.responses import RedirectResponse
+
 from app.api.authz import (
-    from_group_id,
     from_external_id,
+    from_group_id,
     require_group_permission,
     require_task_state,
 )
 from app.api.setup_db import get_db
 from app.api.utils import (
     format_pages_integration,
-    get_wrong_predictions,
     remove_title_from_storage,
 )
+from app.core.review_metrics import compute_review_stats
 from app.db.operations.api import (
     delete_title_from_db_and_storage,
     link_titles_to_group_bulk,
     set_default_title_params,
 )
 from app.db.schemas.title import Scan, TaskState, Title, TitleCreate
-from starlette.responses import RedirectResponse
-from pymongo.errors import DuplicateKeyError
 from app.db.schemas.user import Permission
 from app.tasks.workflows.preprocess_workflow import preprocess_workflow
 
@@ -91,7 +93,7 @@ async def create_title(group_id: str, title_data: TitleCreate, db=Depends(get_db
         logger.warning(
             f"gRPC timeout when scheduling workflow for title {doc.external_id}"
         )
-        pass  # ignore gRPC timeout, the task will be created anyway
+        # ignore gRPC timeout, the task will be created anyway
 
     await db.titles.update_one(
         {"external_id": doc.external_id},
@@ -188,10 +190,12 @@ async def mark_completed(external_id: str, db=Depends(get_db)):
         logger.info(f"Title {external_id} has no scans, skipped.")
         return {"state": TaskState.completed, "id": external_id}
 
-    # Check number of errors from the coordinate prediction model
-    errors = get_wrong_predictions(title.scans)
+    # Ratio of scans the user had to edit. Normally stored by update_pages;
+    # legacy titles (or titles never edited) get it computed here.
+    now = datetime.now()
+    review_stats = title.review_stats or compute_review_stats(title, now=now)
 
-    if len(errors) / len(title.scans) > 0.1:  # more than 10% of pages were edited
+    if review_stats.edit_ratio > 0.1:  # more than 10% of pages were edited
         state = TaskState.retrain
 
     else:  # Title is correct, mark as completed, delete scans from upload volume
@@ -203,11 +207,14 @@ async def mark_completed(external_id: str, db=Depends(get_db)):
         {
             "$set": {
                 "state": state,
-                "modified_at": datetime.now(),
+                "modified_at": now,
+                "completed_at": now,
+                "review_stats": review_stats.model_dump(),
             }
         },
     )
     logger.info(
-        f"Title {external_id} marked as {state}. Title contains {len(errors)}/{len(title.scans)} errors."
+        f"Title {external_id} marked as {state}. Title contains "
+        f"{review_stats.scans_edited}/{review_stats.scans_total} errors."
     )
     return {"state": state, "id": external_id}
