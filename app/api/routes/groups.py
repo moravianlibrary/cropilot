@@ -144,6 +144,14 @@ async def list_groups(
     }
 
 
+def _first_scan_id(scans: list[dict] | None) -> ObjectId | None:
+    """ID of the title's first scan by filename (the order GET /{title_id}/scans uses)."""
+    if not scans:
+        return None
+    first = min(scans, key=lambda scan: scan.get("filename") or "")
+    return first.get("_id")
+
+
 # Fields the titles list can be sorted by (maps API name -> stored field).
 _TITLE_SORT_FIELDS = {
     "external_id": "external_id",
@@ -253,6 +261,10 @@ async def get_titles(
         "external_id": 1,
         "settings": 1,
         "assigned_to": 1,
+        # Only what `_first_scan_id` needs — the frontend shows a thumbnail of the
+        # first scan (by filename, same order as GET /{title_id}/scans) per row.
+        "scans._id": 1,
+        "scans.filename": 1,
     }
 
     if sort_by_assignee:
@@ -308,6 +320,11 @@ async def get_titles(
             name_by_id = {u["_id"]: u.get("full_name") for u in assignees}
         for title in titles:
             title["assigned_to_name"] = name_by_id.get(title.get("assigned_to"))
+
+    # Additive `first_scan_id` (None when the title has no scans yet); the
+    # projected `scans` fragments are not part of the list payload.
+    for title in titles:
+        title["first_scan_id"] = _first_scan_id(title.pop("scans", None))
 
     group["titles"] = titles
     group["total"] = total
