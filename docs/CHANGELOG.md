@@ -1,3 +1,16 @@
+# Unreleased
+
+## Added
+
+### API
+
+- `GET /{title_id}/archive`: streams all scan images of a title as one uncompressed ZIP (`<scan_id>.jpg` entries, matching `_id` in `GET /{title_id}/scans`). Meant for bulk clients such as the `cropilot-utils` trainer, which previously fetched every scan through `/files` one request at a time.
+
+## Fixed
+
+- Predicted page boxes on tilted scans were too large: the position model returns the axis-aligned bounding box of the tilted page, and its size was stored as the page size. After the rotation model predicts the angle, the box is now shrunk to the upright page size (`deskew_page_size`), so deskewed crops no longer carry margins that grow with the angle.
+
+
 # 1.2.6 - 2026-09-02
 
 ## Added

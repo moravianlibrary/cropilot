@@ -6,6 +6,7 @@ from typing import Annotated
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile
 from fastapi.encoders import jsonable_encoder
+from fastapi.responses import StreamingResponse
 
 from app.api.authn import get_current_user
 from app.api.authz import (
@@ -20,6 +21,7 @@ from app.api.setup_db import get_db
 from app.api.utils import (
     format_pages,
     format_predicted_pages,
+    iter_scans_archive,
     resize_image,
     save_scan_to_storage,
     sniff_media_type,
@@ -308,6 +310,44 @@ async def get_scanfile(
         media_type = "image/jpeg"
         file = resize_image(scan["filename"], (1024, 1024))
     return Response(content=file, media_type=media_type)
+
+
+@limiter.limit("60/minute;600/hour")
+@router.get(
+    "/{title_id}/archive",
+    response_class=StreamingResponse,
+    dependencies=[
+        Depends(
+            require_group_permission(
+                Permission.read_title, group_id_provider=from_title_id
+            )
+        )
+    ],
+)
+async def get_scans_archive(request: Request, title_id: str, db=Depends(get_db)):
+    """Streams all scan images of a title as one uncompressed ZIP archive.
+
+    Entries are named ``<scan_id>.jpg`` and match the ``_id`` values returned by
+    ``GET /{title_id}/scans``. Meant for bulk clients (e.g. model training) that
+    would otherwise fetch every scan through ``/files`` one request at a time.
+
+    Returns:
+        StreamingResponse: ``application/zip`` body, streamed scan by scan.
+    """
+    title = await db.titles.find_one(
+        {"_id": ObjectId(title_id)},
+        {"scans._id": 1, "scans.filename": 1},
+    )
+    if not title:
+        raise HTTPException(404, "Title not found")
+
+    scans = sorted(title.get("scans", []), key=lambda s: s["filename"])
+    logger.info(f"Streaming archive of {len(scans)} scans for title ID: {title_id}")
+    return StreamingResponse(
+        iter_scans_archive(scans),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{title_id}.zip"'},
+    )
 
 
 @limiter.limit("2000/minute")

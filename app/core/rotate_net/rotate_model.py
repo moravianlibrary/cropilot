@@ -3,6 +3,9 @@ import os
 from app.core.rotate_net.dataset import PageAngleDataset
 from app.core.rotate_net.network import AngleDegModel, predict_angles
 from torch.utils.data import DataLoader
+from PIL import Image
+
+from app.core.utils import deskew_page_size
 from app.db.schemas.title import Scan
 
 logger = logging.getLogger(__name__)
@@ -15,11 +18,17 @@ def _ensure_rotation_model(name: str):
     global rotation_model
     if name not in rotation_model:
         # Initialize the model and store it in the global variable
-        path = os.path.join(os.getenv("MODELS_VOLUME_PATH"), "rotation_model", f"{name}.pth")
+        path = os.path.join(
+            os.getenv("MODELS_VOLUME_PATH"), "rotation_model", f"{name}.pth"
+        )
         if not os.path.exists(path):
-            logger.warning(f"Rotation model '{name}' not found at '{path}', falling back to default.")
-            path = os.path.join(os.getenv("MODELS_VOLUME_PATH"), "rotation_model", "text.pth")
-        
+            logger.warning(
+                f"Rotation model '{name}' not found at '{path}', falling back to default."
+            )
+            path = os.path.join(
+                os.getenv("MODELS_VOLUME_PATH"), "rotation_model", "text.pth"
+            )
+
         rotation_model[name] = AngleDegModel(model=path)
     return rotation_model[name]
 
@@ -66,11 +75,18 @@ def rotate_pages(
     )
     preds = predict_angles(model, loader)
 
-    # Save predicted angles back to scan results
+    # Save predicted angles back to scan results. The YOLO box is the
+    # axis-aligned bounding box of the tilted page; with the angle known it is
+    # shrunk to the upright page size, so the deskewed crop has no margins.
     idx = 0
     for res in scan_results:
+        if not res.predicted_pages:
+            continue
+        with Image.open(res.filename) as img:
+            img_w, img_h = img.size
         for bbox in res.predicted_pages:
             bbox.angle = round(float(-preds[idx]), 2)
+            deskew_page_size(bbox, img_w, img_h)
             idx += 1
 
     return scan_results

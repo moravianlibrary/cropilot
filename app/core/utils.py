@@ -1,8 +1,9 @@
 import logging
+import math
+
 import numpy as np
 
 from app.db.schemas.title import Scan
-
 
 logger = logging.getLogger(__name__)
 
@@ -103,3 +104,48 @@ def merge_overlaps(scan: Scan) -> Scan:
             else:
                 scan.predicted_pages = [scan.predicted_pages[1]]
     return scan
+
+
+def upright_size_from_aabb(
+    aabb_w: float, aabb_h: float, angle_deg: float
+) -> tuple[float, float]:
+    """Recovers the upright page size from its axis-aligned bounding box.
+
+    The YOLO position model sees un-deskewed scans, so its box is the
+    axis-aligned bounding box (AABB) of the tilted page::
+
+        W = w*cos(a) + h*sin(a)
+        H = w*sin(a) + h*cos(a)
+
+    Once the rotation model has predicted ``a`` this can be inverted, so the
+    stored page rectangle matches the page and not its (larger) AABB. All sizes
+    are in the same unit (pixels). Angles of 45 degrees or more, or a result
+    that is not a valid rectangle (box clipped at the image edge, noisy angle),
+    return the input unchanged.
+    """
+    a = abs(math.radians(angle_deg))
+    c, s = math.cos(a), math.sin(a)
+    det = c * c - s * s  # cos(2a)
+    if det <= 1e-6:
+        return aabb_w, aabb_h
+    w = (aabb_w * c - aabb_h * s) / det
+    h = (aabb_h * c - aabb_w * s) / det
+    if w <= 0 or h <= 0:
+        return aabb_w, aabb_h
+    return w, h
+
+
+def deskew_page_size(page, img_w: int, img_h: int) -> None:
+    """Shrinks a predicted page from AABB to upright size in place.
+
+    ``page.width`` / ``page.height`` are normalized to the image, so the
+    inversion runs in pixels and the result is renormalized. The center and the
+    angle are unchanged.
+    """
+    if not page.angle or img_w <= 0 or img_h <= 0:
+        return
+    w_px, h_px = upright_size_from_aabb(
+        page.width * img_w, page.height * img_h, page.angle
+    )
+    page.width = round(w_px / img_w, 4)
+    page.height = round(h_px / img_h, 4)

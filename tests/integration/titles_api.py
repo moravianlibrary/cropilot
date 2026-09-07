@@ -1,6 +1,8 @@
+import io
 import os
 import time
 import uuid
+import zipfile
 import requests
 
 
@@ -196,6 +198,20 @@ def test_books_endpoints_flow():
         assert thumb_resp.status_code == 200, thumb_resp.text
         assert thumb_resp.content
         print(f"Retrieved file and thumbnail for scan ID: {scan_id}")
+
+        # GET /{title_id}/archive
+        archive_resp = requests.get(
+            f"{BASE_URL}/{title_id}/archive",
+            headers=headers(),
+            timeout=120,
+        )
+        assert archive_resp.status_code == 200, archive_resp.text
+        assert archive_resp.headers["content-type"] == "application/zip"
+        archive = zipfile.ZipFile(io.BytesIO(archive_resp.content))
+        assert archive.testzip() is None
+        assert f"{scan_id}.jpg" in archive.namelist()
+        assert archive.read(f"{scan_id}.jpg") == file_resp.content
+        print(f"Retrieved archive with {len(archive.namelist())} scans")
 
         # PATCH /{title_id}/update-pages
         update_pages_resp = requests.patch(

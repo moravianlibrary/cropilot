@@ -1,11 +1,14 @@
-from io import BytesIO
 import logging
 import os
+import zipfile
+from collections.abc import Iterable, Iterator
+from io import BytesIO
+
 import PIL
 from fastapi.encoders import jsonable_encoder
-from app.db.schemas.title import Scan
 from PIL import Image, ImageOps
 
+from app.db.schemas.title import Scan
 
 UPLOAD_VOLUME_PATH = os.getenv("SCANS_VOLUME_PATH")
 logger = logging.getLogger(__name__)
@@ -168,3 +171,53 @@ def remove_title_from_storage(title_id: str):
     logger.info(
         f"Deleted {len(files)} files for title ID {title_id} from '{scans_path}'"
     )
+
+
+class _ChunkSink:
+    """Minimal write-only file object for ``zipfile`` that hands out written bytes.
+
+    ``zipfile.ZipFile`` needs ``write`` / ``flush`` / ``tell`` on a non-seekable
+    target; it then uses data descriptors instead of seeking back. Whatever was
+    written since the last ``drain()`` is returned as one chunk.
+    """
+
+    def __init__(self):
+        self._buf = bytearray()
+        self._pos = 0
+
+    def write(self, data: bytes) -> int:
+        self._buf += data
+        self._pos += len(data)
+        return len(data)
+
+    def flush(self) -> None:
+        pass
+
+    def tell(self) -> int:
+        return self._pos
+
+    def drain(self) -> bytes:
+        chunk = bytes(self._buf)
+        self._buf.clear()
+        return chunk
+
+
+def iter_scans_archive(scans: Iterable[dict]) -> Iterator[bytes]:
+    """Streams a ZIP archive with one ``<scan_id>.jpg`` entry per scan.
+
+    Files are stored uncompressed (they are JPEGs already), so memory use stays
+    at roughly one scan image regardless of how many scans the title has.
+    Missing files are skipped with a warning; entry names use the scan id so a
+    client can pair them with the ``/scans`` response.
+    """
+    sink = _ChunkSink()
+    with zipfile.ZipFile(sink, mode="w", compression=zipfile.ZIP_STORED) as archive:
+        for scan in scans:
+            path = scan.get("filename")
+            if not path or not os.path.isfile(path):
+                logger.warning(f"Scan file missing, skipping in archive: {path}")
+                continue
+            archive.write(path, arcname=f"{scan['_id']}.jpg")
+            yield sink.drain()
+    # Central directory written on close.
+    yield sink.drain()
