@@ -1,42 +1,53 @@
 # Unreleased
 
-## Added
 
-### API
-
-- `GET /{title_id}/archive`: streams all scan images of a title as one uncompressed ZIP (`<scan_id>.jpg` entries, matching `_id` in `GET /{title_id}/scans`). Meant for bulk clients such as the `cropilot-utils` trainer, which previously fetched every scan through `/files` one request at a time.
-
-## Fixed
-
-- Predicted page boxes on tilted scans were too large: the position model returns the axis-aligned bounding box of the tilted page, and its size was stored as the page size. After the rotation model predicts the angle, the box is now shrunk to the upright page size (`deskew_page_size`), so deskewed crops no longer carry margins that grow with the angle.
-
-
-# 1.2.6 - 2026-09-02
+# 1.2.6 - 2026-09-08
 
 ## Added
 
-### API
+### Title assignment
 
-- Admin-only `/stats/*` endpoints: `overview`, `review-quality`, `anomalies`, `editor-usage`, `settings`. All results are aggregated per group / model / month; there is no per-user breakdown.
-- `POST /events`: batched frontend usage events (editor sessions, heartbeats, shortcuts, mouse actions, filters, saves, settings snapshots). Stored in `usage_events` with a TTL index.
+- Titles can be assigned to a group member (`Title.assigned_to`). Managers (upload permission) and admins assign from the titles table or the title detail drawer; the row updates in place.
+- Users who hold only `read_title` (not `read_group`) in a group now see just the titles assigned to them, so an intern works only on their own queue. The NDK / direct-link flow is unaffected.
+- Deleting a user clears their assignments.
+
+### Usage statistics
+
+- New admin tab **Statistiky**: prediction quality, anomaly precision/recall, editor usage, settings distribution, CSV export.
 - `Title.review_stats`: prediction-vs-edit metrics (edited scans ratio, mean IoU, center shift, angle delta, pages added/removed, orientation changes), recomputed on every save and cleared on reset / settings change.
 - `Title.ready_at`, `user_approved_at`, `completed_at` lifecycle timestamps for review turnaround statistics.
-- Latest statistics snapshot: the nightly `maintenance` cron now also stores the current aggregates (trailing 30 days) in a single overwritten document `stats_snapshots/latest` (no TTL, part of the dump) and as `<dump>/stats/latest.json`. Readable via `GET /stats/latest`; `app.scripts.stats_snapshot` refreshes it by hand.
+- Frontend telemetry: batched editor sessions, heartbeats, keyboard shortcuts, mouse actions, filters, saves and settings snapshots are sent to `POST /events` and stored in `usage_events` with a TTL index. `APP_TELEMETRY_ENABLED=false` on the frontend turns it off.
+- Latest statistics snapshot: the nightly `maintenance` cron stores the current aggregates (trailing 30 days) in a single overwritten document `stats_snapshots/latest` (no TTL, part of the dump) and as `<dump>/stats/latest.json`. Readable via `GET /stats/latest`; `app.scripts.stats_snapshot` refreshes it by hand.
 
 ### UI
 
-- New admin tab **Statistiky** with prediction quality, anomaly precision, editor usage and settings distribution.
+- Redesigned application look across login, dashboard, drawers, dialogs and editor: unified type scale and control sizes, segmented pill tabs, card-based groups overview, tables with a single "…" action opening a right-side detail drawer (groups, users, titles), relative dates with exact-date tooltips, masked API keys with show/hide, consistent focus rings and icon-button hovers, dark editor canvas with a wider right panel.
+- Titles table shows a lazily loaded thumbnail of the first scan per row.
+- Title detail drawer: name, crop/rotation model (with a warning on model change), assignee, delete, "Otevřít v editoru".
+- CSV export moved from the titles toolbar into the group detail drawer; groups and titles tables reordered (identity → workflow → config → time). The assignment column is labelled **Zpracovatel** and is sortable.
+- Permission labels renamed: `read_title` → "Detail titulu", `read_group` → "Zobrazení všech titulů".
 
-## Changes
+### Editor
 
-- The integration `complete` endpoint now reads the edited-scan ratio from `review_stats` (same 10 % retrain threshold as before) and stores `completed_at`.
+- Reviewing flagged scans ("Podezřelé"): a flagged scan counts as reviewed once it has been on screen for 0.5 s. Reviewed and edited scans stay in the filter greyed out instead of disappearing, and the filter badge shows the number still awaiting attention. The reviewed set lives in memory only; a reload restores every flagged scan.
+- Crop rotation slider (±45°, 0.1° steps, double-click resets to 0°) next to the numeric input.
+- Settings: new **Viditelnost clony** slider (0–100 %) for the dim overlay; the settings dialog previews drafted values (grid, outline, dim, default zoom) live on the canvas and reverts them when closed without saving.
+- The "Vzhled editoru" settings tab is available to non-authenticated users too (preferences are stored locally).
+
+### API
+
+- `PATCH /{title_id}/assign` (upload permission or admin; `null` clears) and `GET /groups/{group_id}/assignable-users` (regular group members only, excludes admins and the public user).
+- Group title listing: new `assigned_to` / `assigned_to_name` fields (replacing the last-editor name), `assigned_to_name` as a sort field, and `first_scan_id` (id of the first scan by filename, `null` without scans) for list thumbnails.
+- Admin-only `/stats/*` endpoints: `overview`, `review-quality`, `anomalies`, `editor-usage`, `settings`, `latest`. All results are aggregated per group / model / month; there is no per-user breakdown.
+- `POST /events`: batched frontend usage events.
+- `GET /{title_id}/archive`: streams all scan images of a title as one uncompressed ZIP (`<scan_id>.jpg` entries, matching `_id` in `GET /{title_id}/scans`). Meant for bulk clients such as the `cropilot-utils` trainer, which previously fetched every scan through `/files` one request at a time.
 
 ## Deployment
 
 - New env var `USAGE_EVENTS_TTL_DAYS` (default 180) on the API. Changing it later is handled automatically at startup via `collMod`.
+- New env var `APP_TELEMETRY_ENABLED` (default `true`) on the frontend.
 - No Mongo shell migration is needed. To populate metrics for titles edited before this release, run once:
   `uv run --env-file .env -m app.scripts.backfill_review_stats` (add `--dry-run` to preview, `--approximate-timestamps` to fill completion timestamps from `modified_at`).
-
 
 # 1.2.5 - 2026-07-30
 
