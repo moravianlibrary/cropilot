@@ -271,7 +271,9 @@ async def get_titles(
         # Sort by the assignee's display name. Because that name is resolved from
         # the `users` collection (not stored on the title), order globally — before
         # paging — with an aggregation that $lookups the name, sorts, then pages.
-        titles = await db.titles.aggregate(
+        # pymongo's async ``aggregate()`` is a coroutine returning the cursor, so
+        # await it first and then consume the cursor (chaining raises AttributeError).
+        cursor = await db.titles.aggregate(
             [
                 {"$match": query},
                 {
@@ -297,7 +299,8 @@ async def get_titles(
                 {"$limit": page_size},
                 {"$project": {**projection, "assigned_to_name": 1}},
             ]
-        ).to_list(length=page_size)
+        )
+        titles = await cursor.to_list(length=page_size)
     else:
         titles = (
             await db.titles.find(query, projection)
