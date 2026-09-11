@@ -36,6 +36,9 @@ class UsageEventType(str, Enum):
     reset_scan = "reset_scan"
     reset_title = "reset_title"
     predictions_toggled = "predictions_toggled"
+    # A crop was added in the editor; ``strategy`` says which placement
+    # heuristic positioned it (prediction / mirror / neighbor / default).
+    page_added = "page_added"
 
 
 # Keys a payload must contain for a given event type (value type checked too).
@@ -44,6 +47,7 @@ REQUIRED_PAYLOAD_KEYS: dict[UsageEventType, dict[str, type | tuple[type, ...]]] 
     UsageEventType.mouse_action: {"action": str},
     UsageEventType.filter_change: {"filter": str, "value": str},
     UsageEventType.editor_heartbeat: {"active": bool},
+    UsageEventType.page_added: {"strategy": str, "via": str},
 }
 
 _SCALAR = (str, int, float, bool, type(None))

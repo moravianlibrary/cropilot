@@ -106,6 +106,19 @@ def test_payload_validation_rejects_missing_required_key():
         UsageEventIn(type="shortcut", session_id="session-0001", payload={"key": "x"})
 
 
+def test_page_added_requires_strategy_and_via():
+    ok = UsageEventIn(
+        type="page_added",
+        session_id="session-0001",
+        payload={"strategy": "mirror", "via": "mouse"},
+    )
+    assert ok.type == UsageEventType.page_added
+    with pytest.raises(ValueError):
+        UsageEventIn(
+            type="page_added", session_id="session-0001", payload={"via": "mouse"}
+        )
+
+
 def test_payload_validation_rejects_nested_objects():
     with pytest.raises(ValueError):
         event(payload={"active": True, "nested": {"a": 1}})

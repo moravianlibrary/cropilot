@@ -461,10 +461,22 @@ async def editor_usage(
         },
     ]
 
-    sessions, actions, filters = await asyncio.gather(
+    # How new crops were positioned (see frontend utils/page-placement.ts).
+    placements_pipeline = [
+        {"$match": {**ematch, "type": UsageEventType.page_added.value}},
+        {
+            "$group": {
+                "_id": {"key": event_key, "strategy": "$payload.strategy"},
+                "n": {"$sum": 1},
+            }
+        },
+    ]
+
+    sessions, actions, filters, placements = await asyncio.gather(
         _aggregate(db.usage_events, sessions_pipeline),
         _aggregate(db.usage_events, actions_pipeline),
         _aggregate(db.usage_events, filters_pipeline),
+        _aggregate(db.usage_events, placements_pipeline),
     )
 
     actions_by_key: dict = {}
@@ -480,6 +492,11 @@ async def editor_usage(
         k, flt, val = r["_id"]["key"], r["_id"]["filter"], r["_id"]["value"]
         filters_by_key.setdefault(k, {}).setdefault(flt, {})[val] = r["n"]
 
+    placements_by_key: dict[str, dict[str, int]] = {}
+    for r in placements:
+        k, strategy = r["_id"]["key"], str(r["_id"]["strategy"])
+        placements_by_key.setdefault(k, {})[strategy] = r["n"]
+
     for s in sessions:
         k = s["_id"]
         per_action = list(actions_by_key.get(k, {}).values())
@@ -494,6 +511,7 @@ async def editor_usage(
             key=lambda a: -a["n"],
         )[:top_n]
         s["filters"] = filters_by_key.get(k, {})
+        s["page_placements"] = placements_by_key.get(k, {})
 
     return _round_floats(await _resolve_keys(sessions, group_by, db))
 

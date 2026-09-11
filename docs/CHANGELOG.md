@@ -1,5 +1,11 @@
 # Unreleased
 
+## Added
+
+### Usage statistics
+
+- `page_added` usage event: the editor reports every added crop with the placement strategy that positioned it (`prediction` — an unused model prediction, `mirror` — the existing crop mirrored to the free side, `neighbor` — copied from a neighbouring scan, `default` — centred rectangle) and whether it came from the mouse or the keyboard. `GET /stats/editor-usage` returns the per-strategy counts as `page_placements`.
+
 
 # 1.2.6 - 2026-09-08
 
