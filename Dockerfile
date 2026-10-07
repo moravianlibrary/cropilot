@@ -4,6 +4,5 @@ USER root
 # Copy source code
 COPY app /src/app/
 COPY models /src/models/
-COPY pyproject.toml /src/
 
 USER appuser

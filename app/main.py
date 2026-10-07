@@ -1,6 +1,3 @@
-import tomllib
-from pathlib import Path
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
@@ -8,6 +5,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
+from app import __version__
 from app.api import limiter
 from app.api.routes import events, groups, integration, models, stats, titles, users
 from app.api.setup_db import lifespan
@@ -16,11 +14,8 @@ from app.logs import setup_logging
 
 setup_logging()
 
-with open(Path(__file__).parent.parent / "pyproject.toml", "rb") as f:
-    VERSION = tomllib.load(f)["project"]["version"]
 
-
-app = FastAPI(title="Cropilot API", version=VERSION, lifespan=lifespan)
+app = FastAPI(title="Cropilot API", version=__version__, lifespan=lifespan)
 Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 app.include_router(integration.router)
 # /events and /stats must be registered before the root-prefixed titles router,
@@ -49,7 +44,7 @@ def custom_openapi():
         return app.openapi_schema
     openapi_schema = get_openapi(
         title="Cropilot API",
-        version=VERSION,
+        version=__version__,
         routes=app.routes,
     )
     # Add a custom schema
