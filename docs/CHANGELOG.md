@@ -1,10 +1,30 @@
-# Unreleased
+# 1.2.7 - 2026-10-07
 
 ## Added
 
-### Usage statistics
+### UI
 
-- `page_added` usage event: the editor reports every added crop with the placement strategy that positioned it (`prediction` — an unused model prediction, `mirror` — the existing crop mirrored to the free side, `neighbor` — copied from a neighbouring scan, `default` — centred rectangle) and whether it came from the mouse or the keyboard. `GET /stats/editor-usage` returns the per-strategy counts as `page_placements`.
+- English localization (Czech by default).
+- User menu in the top panel: name, e-mail and role, language switch, logout.
+- New Cropilot favicon.
+- Permission chips explain themselves in a tooltip instead of the legend strips.
+- Title and user lists: pagination scrolls with the list.
+- Group drawer: CSV export moved to the header as **Stáhnout jako CSV**.
+
+### Editor
+
+- Smart placement of new crops: **Přidat výřez** uses an unused model prediction, mirrors the existing crop to the free side, or copies a crop from a neighbouring scan; the centred rectangle is only the fallback.
+- Crop outline and grid share one user-selected color; new defaults outline Střední, dim Černá at 50 %.
+- Reworked right panel: one status row for all scan flags, collapsible **Otočit sken**, a dot marking crops edited in this session.
+
+## Fixed
+
+- Editor opened over plain HTTP on a LAN address did not show scans until a filter was clicked (`crypto.randomUUID is not a function`).
+- Saving writes only scans that really changed; with nothing changed the editor shows "Žádné změny k uložení."
+
+## Deployment
+
+- No new env vars and no migration.
 
 
 # 1.2.6 - 2026-09-08
