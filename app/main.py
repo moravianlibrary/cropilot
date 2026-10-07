@@ -1,3 +1,6 @@
+import tomllib
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
@@ -13,8 +16,11 @@ from app.logs import setup_logging
 
 setup_logging()
 
+with open(Path(__file__).parent.parent / "pyproject.toml", "rb") as f:
+    VERSION = tomllib.load(f)["project"]["version"]
 
-app = FastAPI(title="Cropilot API", lifespan=lifespan)
+
+app = FastAPI(title="Cropilot API", version=VERSION, lifespan=lifespan)
 Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 app.include_router(integration.router)
 # /events and /stats must be registered before the root-prefixed titles router,
@@ -43,7 +49,7 @@ def custom_openapi():
         return app.openapi_schema
     openapi_schema = get_openapi(
         title="Cropilot API",
-        version="1.0.1",
+        version=VERSION,
         routes=app.routes,
     )
     # Add a custom schema
