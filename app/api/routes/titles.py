@@ -2,6 +2,7 @@ import logging
 import os
 from datetime import datetime
 from typing import Annotated
+from urllib.parse import quote
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile
@@ -21,6 +22,7 @@ from app.api.setup_db import get_db
 from app.api.utils import (
     format_pages,
     format_predicted_pages,
+    iter_crop_previews_archive,
     iter_scans_archive,
     resize_image,
     save_scan_to_storage,
@@ -347,6 +349,52 @@ async def get_scans_archive(request: Request, title_id: str, db=Depends(get_db))
         iter_scans_archive(scans),
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{title_id}.zip"'},
+    )
+
+
+@limiter.limit("60/minute;600/hour")
+@router.get(
+    "/{title_id}/crop-previews",
+    response_class=StreamingResponse,
+    dependencies=[
+        Depends(
+            require_group_permission(Permission.upload, group_id_provider=from_title_id)
+        )
+    ],
+)
+async def get_crop_previews_archive(
+    request: Request, title_id: str, db=Depends(get_db)
+):
+    """Streams every crop of a title as JPEG previews in one ZIP archive.
+
+    Crops are cut from the stored scans (as uploaded, e.g. downscaled by the
+    uploader), using the user-edited crops where present, else the predictions.
+    Entries are named ``<scan_name>_page<N>.jpg``. Title managers only.
+
+    Returns:
+        StreamingResponse: ``application/zip`` body, streamed scan by scan.
+    """
+    title = await db.titles.find_one(
+        {"_id": ObjectId(title_id)}, {"scans": 1, "external_id": 1}
+    )
+    if not title:
+        raise HTTPException(404, "Title not found")
+
+    scans = sorted(
+        (Scan.model_validate(scan) for scan in title.get("scans", [])),
+        key=lambda s: s.filename,
+    )
+    logger.info(
+        f"Streaming crop previews of {len(scans)} scans for title ID: {title_id}"
+    )
+    name = f"{title.get('external_id') or title_id}_nahled.zip"
+    return StreamingResponse(
+        iter_crop_previews_archive(scans),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{title_id}_nahled.zip"; '
+            f"filename*=UTF-8''{quote(name)}"
+        },
     )
 
 

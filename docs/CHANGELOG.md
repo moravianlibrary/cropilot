@@ -1,3 +1,15 @@
+# Unreleased
+
+## Added
+
+- **Crop download** (title managers): the title detail panel and the editor's ☰ menu download the whole title as a ZIP of JPEG crops (`GET /{title_id}/crop-previews`), cut on the server from the stored scans at their stored resolution, with the geometry of `crop_documents()` in cropilot-utils. Files are named `<scan>_page<N>.jpg`. The editor's ⋮ menu downloads the open scan's crops as separate JPEGs.
+- Web upload: progress per title ("Nahrávání x/y"), a warning before leaving the page mid-upload, and retries of failed scan uploads.
+
+## Fixed
+
+- Relative dates ("dnes", "včera", …) count calendar days: a title from yesterday afternoon no longer shows "dnes" the next morning.
+- A title uploaded through the web could stay in "Založena" when the page was reloaded during the upload (`/process` was never called).
+
 # 1.2.7 - 2026-10-07
 
 ## Added
