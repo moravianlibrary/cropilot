@@ -74,16 +74,21 @@ async def create_title(group_id: str, title_data: TitleCreate, db=Depends(get_db
         doc = Title.model_validate(title_data_dict)
         doc = await set_default_title_params(doc, group_id, db)
         await db.titles.insert_one(doc.model_dump(by_alias=True))
+    except DuplicateKeyError:
+        raise HTTPException(400, "Title with this id already exists")
+    except Exception as e:
+        raise HTTPException(400, f"Invalid title data: {e}")
 
+    try:
         # Create directory for scans
         os.makedirs(os.path.join(UPLOAD_VOLUME_PATH, str(doc.id)), exist_ok=True)
         # Assign to the default group
         await link_titles_to_group_bulk(
             title_ids=[ObjectId(doc.id)], group_id=ObjectId(group_id), db=db
         )
-    except DuplicateKeyError:
-        raise HTTPException(400, "Title with this id already exists")
     except Exception as e:
+        logger.error(f"Failed to create title: {e}")
+        await delete_title_from_db_and_storage(str(doc.id), group_id, db)
         raise HTTPException(400, f"Invalid title data: {e}")
 
     # Schedule task and update state

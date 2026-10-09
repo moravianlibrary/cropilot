@@ -1,12 +1,11 @@
 from datetime import datetime
 import logging
 import os
-from altair import Title
 from bson import ObjectId
 from fastapi.encoders import jsonable_encoder
 
 from app.api.utils import remove_title_from_storage
-from app.db.schemas.title import Settings
+from app.db.schemas.title import Settings, Title
 from app.db.schemas.user import Role, User
 
 UPLOAD_VOLUME_PATH = os.getenv("SCANS_VOLUME_PATH")
@@ -15,17 +14,23 @@ logger = logging.getLogger(__name__)
 
 async def link_titles_to_group_bulk(title_ids: list[ObjectId], group_id: ObjectId, db):
     """Link multiple titles to a group."""
-    await db.titles.update_many(
+    titles_result = await db.titles.update_many(
         {"_id": {"$in": title_ids}},
         {"$set": {"group_id": group_id}},
     )
-    await db.groups.update_one(
+    if titles_result.matched_count != len(title_ids):
+        raise ValueError(
+            f"Linking to group {group_id} matched {titles_result.matched_count}/{len(title_ids)} titles"
+        )
+    group_result = await db.groups.update_one(
         {"_id": group_id},
         {
             "$addToSet": {"title_ids": {"$each": title_ids}},
             "$set": {"modified_at": datetime.now()},
         },
     )
+    if group_result.matched_count == 0:
+        raise ValueError(f"Linking titles failed, group {group_id} not found")
 
     logger.debug(f"Linked titles {title_ids} to group {group_id}")
     return {"title_ids": title_ids, "group_id": group_id}
@@ -38,7 +43,9 @@ async def get_users_in_group(group_id: ObjectId, db):
     ).to_list(length=None)
 
     for user in users:
-        user["permission"] = await get_user_permissions_in_group(User.model_validate(user), group_id)
+        user["permission"] = await get_user_permissions_in_group(
+            User.model_validate(user), group_id
+        )
 
     return jsonable_encoder(
         users,
@@ -70,6 +77,7 @@ async def add_group_name_to_user_response(user: User, db) -> dict:
 
 async def set_default_title_params(title: Title, group_id: str, db) -> Title:
     """Sets default title parameters based on group settings."""
+    title.group_id = ObjectId(group_id)
     if title.external_id is None:
         title.external_id = str(title.id)
     # Override title settings with group default if not provided
