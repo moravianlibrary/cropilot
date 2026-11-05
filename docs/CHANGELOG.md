@@ -7,6 +7,7 @@
 
 ## Fixed
 
+- Page order of downloaded crops on rotated scans: the pages of a scan are now ordered left to right as the scan is displayed. Crops are stored in the unrotated frame, so on a scan turned 90° the two pages of a spread have nearly the same `xc` and sorting by it put the right page first for about half of the spreads (`_page1` / `_page2` swapped in cropilot-utils and the desktop uploaders). Affects `/scans`, `/integration/.../coordinates` and the crop download; stored data is unchanged, re-download after deploy.
 - Relative dates ("dnes", "včera", …) count calendar days: a title from yesterday afternoon no longer shows "dnes" the next morning.
 - A title uploaded through the web could stay in "Založena" when the page was reloaded during the upload (`/process` was never called).
 

@@ -16,6 +16,30 @@ UPLOAD_VOLUME_PATH = os.getenv("SCANS_VOLUME_PATH")
 logger = logging.getLogger(__name__)
 
 
+def oriented_xc(page: Page, orientation: int = 0) -> float:
+    """Horizontal center of a crop as the scan is displayed and downloaded.
+
+    Crops are stored in the scan's original (unrotated) frame; the editor turns
+    the scan by ``orientation`` degrees clockwise and the downloaders turn the
+    crops the same way. Only in that turned frame does a lower ``xc`` mean the
+    left page, so this is the key for ordering the pages of a scan.
+    """
+    orientation = orientation % 360
+    if orientation == 90:
+        return 1 - page.yc
+    if orientation == 180:
+        return 1 - page.xc
+    if orientation == 270:
+        return page.yc
+    return page.xc
+
+
+def sort_pages_left_to_right(pages: list[Page], orientation: int = 0) -> list[Page]:
+    """Orders the crops of one scan left to right as displayed, so that the left
+    page of a spread is always page 1."""
+    return sorted(pages, key=lambda p: oriented_xc(p, orientation))
+
+
 def format_pages_integration(scans: list[Scan], filepaths: list[str]) -> list[dict]:
     """Overrides predicted pages with user edited pages if available, flattens the list."""
     formatted_pages = []
@@ -25,7 +49,7 @@ def format_pages_integration(scans: list[Scan], filepaths: list[str]) -> list[di
             if scan.user_edited_pages is not None
             else scan.predicted_pages
         )
-        pages = sorted(pages, key=lambda p: p.xc)  # left first
+        pages = sort_pages_left_to_right(pages, scan.orientation)
 
         if len(pages) == 2:
             page_types = ["left", "right"]
@@ -59,7 +83,7 @@ def format_pages(scans: list[Scan]) -> list[dict]:
             edited = False
             pages = scan.predicted_pages
 
-        pages = sorted(pages, key=lambda p: p.xc)  # left first
+        pages = sort_pages_left_to_right(pages, scan.orientation)
 
         # Collect all flags from pages, store on scan level
         flags = set([flag for page in scan.predicted_pages for flag in page.flags])
@@ -283,7 +307,9 @@ def iter_crop_previews_archive(scans: Iterable[Scan]) -> Iterator[bytes]:
                 continue
 
             base = scan.scan_name or f"sken_{index + 1:04d}"
-            for number, page in enumerate(sorted(pages, key=lambda p: p.xc), 1):
+            for number, page in enumerate(
+                sort_pages_left_to_right(pages, scan.orientation), 1
+            ):
                 crop = crop_page(image, page, scan.orientation)
                 if crop.size == 0:
                     continue
