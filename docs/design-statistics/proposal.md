@@ -1,6 +1,6 @@
 # Statistiky – návrh redesignu
 
-Mockup: `mockup.html` (desktop, reálná data z testovací instance).
+Návrh rozložení stránky Statistiky (mockup byl použit jen při návrhu).
 
 ## Co se mění
 
