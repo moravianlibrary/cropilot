@@ -85,6 +85,8 @@ async def create_indexes(db):
         [("user_id", 1), ("type", 1), ("ts", -1)], name="events_user_type_ts"
     )
     await events.create_index([("session_id", 1), ("ts", 1)], name="events_session_ts")
+    # Backs the nightly work_stats roll-up (events per title in a time window).
+    await events.create_index([("title_id", 1), ("ts", 1)], name="events_title_ts")
     await _ensure_ttl_index(
         db, "usage_events", "ts", settings_api.usage_events_ttl_days * 24 * 3600
     )

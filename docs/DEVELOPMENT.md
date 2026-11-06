@@ -100,6 +100,8 @@ The frontend sends usage events (editor sessions, heartbeats, shortcuts, mouse a
 
 Raw events expire via a TTL index after `USAGE_EVENTS_TTL_DAYS` (default 180). Prediction-quality metrics live on the title (`review_stats`) and are not affected by the TTL. Set `APP_TELEMETRY_ENABLED=false` on the frontend to stop sending events.
 
+The `maintenance` cron also runs `work_stats_rollup` before the snapshot: it folds the editor heartbeats and opens of the day into `Title.work_stats` (active / visible seconds, sessions, first open, last activity) so the human time per title outlives the events TTL. The run is incremental: the high-water mark is stored in `stats_snapshots` / `_id: "work_stats_rollup"` and advanced only after the titles were written, with a 5-minute lag so an in-flight event batch cannot slip past it. `uv run --env-file .env -m app.scripts.work_stats_rollup` runs it by hand (optional; the first nightly run folds in everything still within the TTL anyway). `GET /stats/time` combines `work_stats` with the lifecycle timestamps on the title (`scheduled_at`, `started_at`, `ready_at`, `user_approved_at`, `completed_at`).
+
 The `maintenance` Hatchet cron (2 AM) runs `stats_snapshot` next to the `mongodump`: it recomputes the current aggregates (trailing 30 days) and overwrites a single document in `stats_snapshots` (`_id: "latest"`, no TTL, so it is part of the dump) and `<SCANS_VOLUME_PATH>/mongodump/stats/latest.json`. Nothing accumulates. `GET /stats/latest` returns it; `uv run --env-file .env -m app.scripts.stats_snapshot` refreshes it by hand, e.g. right after the first deploy.
 
 ## Cheat sheet

@@ -49,6 +49,10 @@ async def build_snapshot(
         group_by: await ops.review_quality(f, group_by, db)
         for group_by in ("group", "crop_model", "rotation_model")
     }
+    time = {
+        group_by: await ops.time_stats(f, group_by, db)
+        for group_by in ("group", "crop_model", "rotation_model", "month")
+    }
     return {
         "_id": SNAPSHOT_ID,
         "computed_at": now,
@@ -57,6 +61,7 @@ async def build_snapshot(
         "to": end,
         "overview": await ops.overview(f, db),
         "review_quality": review_quality,
+        "time": time,
         "anomalies": {
             "all": await ops.anomalies(f, None, db),
             "group": await ops.anomalies(f, "group", db),

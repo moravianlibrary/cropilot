@@ -8,6 +8,7 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
+from pymongo import UpdateOne
 
 from app.api.authn import get_current_user
 from app.api.authz import (
@@ -28,7 +29,7 @@ from app.api.utils import (
     save_scan_to_storage,
     sniff_media_type,
 )
-from app.core.review_metrics import compute_review_stats
+from app.core.review_metrics import compute_review_stats, scan_changes
 from app.db.operations.api import (
     delete_title_from_db_and_storage,
     get_user_permissions_in_group,
@@ -172,9 +173,16 @@ async def process_title(request: Request, title_id: str, db=Depends(get_db)):
     # Schedule task and update state
     try:
         await predict_workflow.aio_run_no_wait(input=Title.model_validate(title))
+        now = datetime.now()
         await db.titles.update_one(
             {"_id": ObjectId(title_id)},
-            {"$set": {"state": TaskState.scheduled, "modified_at": datetime.now()}},
+            {
+                "$set": {
+                    "state": TaskState.scheduled,
+                    "modified_at": now,
+                    "scheduled_at": now,
+                }
+            },
         )
     except Exception as e:
         logger.error(f"Failed to schedule workflow for title ID {title_id}: {e}")
@@ -550,7 +558,23 @@ async def update_pages(
     # review_stats always reflect the latest saved state.
     now = datetime.now()
     title_doc = await db.titles.find_one({"_id": ObjectId(title_id)})
-    review_stats = compute_review_stats(Title.model_validate(title_doc), now=now)
+    title = Title.model_validate(title_doc)
+    review_stats = compute_review_stats(title, now=now)
+
+    # Per-scan "really changed" flags (anomaly statistics compare flags against
+    # these, not against mere saves). Only the scans whose pages were sent can
+    # have changed; the others keep their stored flag.
+    sent = {scan.id for scan in scans if scan.pages}
+    changes = [
+        UpdateOne(
+            {"_id": ObjectId(title_id), "scans._id": scan_id},
+            {"$set": {"scans.$.changed": changed}},
+        )
+        for scan_id, changed in scan_changes(title).items()
+        if scan_id in sent
+    ]
+    if changes:
+        await db.titles.bulk_write(changes, ordered=False)
 
     # Update title state to user_approved. Pipeline update so user_approved_at
     # is only set on the first save; $literal keeps stored strings from being
@@ -623,6 +647,7 @@ async def reset_predictions(
         {
             "$set": {
                 "scans.$[].user_edited_pages": None,
+                "scans.$[].changed": None,
                 "review_stats": None,
                 "modified_at": datetime.now(),
                 "modified_by": current_user.email,
@@ -681,7 +706,11 @@ async def update_title(
                 "$set": {
                     "scans.$[].predicted_pages": [],
                     "scans.$[].user_edited_pages": None,
+                    "scans.$[].changed": None,
                     "review_stats": None,
+                    "work_stats": None,
+                    "scheduled_at": None,
+                    "started_at": None,
                     "ready_at": None,
                     "user_approved_at": None,
                     "completed_at": None,
@@ -705,9 +734,16 @@ async def update_title(
             await predict_workflow.aio_run_no_wait(
                 input=Title.model_validate(updated_title)
             )
+            now = datetime.now()
             await db.titles.update_one(
                 {"_id": ObjectId(title_id)},
-                {"$set": {"state": TaskState.scheduled, "modified_at": datetime.now()}},
+                {
+                    "$set": {
+                        "state": TaskState.scheduled,
+                        "modified_at": now,
+                        "scheduled_at": now,
+                    }
+                },
             )
         except Exception as e:
             logger.error(f"Failed to schedule workflow for title ID {title_id}: {e}")

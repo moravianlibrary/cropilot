@@ -2,6 +2,10 @@
 
 ## Added
 
+- **Time statistics** (`GET /stats/time`, admin): machine vs. human time per group / model / month. Titles now record `scheduled_at` and `started_at` next to `ready_at`, which splits their life into queue → processing → waiting for review → review → after save; the endpoint returns the median of each phase plus machine seconds per scan and active human seconds per scan / per really changed scan. Human time comes from `Title.work_stats`, which the nightly `maintenance` cron folds in from editor heartbeats (`work_stats_rollup` task, incremental with a high-water mark, so it survives the events TTL). The nightly snapshot includes a `time` section. Statistics page: new **Čas** card (tiles, title timeline, per-key table, monthly trend); the "Doba kontroly" column moved there as "čeká na kontrolu".
+- Per-scan `changed` flag stored on save (geometry really differs from the prediction). The anomaly statistics measure precision / recall against it instead of against "saved at all", which inflated both the edited counts and "Upravené bez příznaku" for groups that save every scan. Scans saved before this version have no flag and are left out of the anomaly statistics.
+- Editor usage: active time (heartbeats with input in the last minute) next to the plain tab-open time, in `/stats/overview` (`editor_active_time_s`) and `/stats/editor-usage` (`total_active_s`, `mean_active_s`). The overview tile shows active time.
+
 - **Crop download** (title managers): the title detail panel and the editor's ☰ menu download the whole title as a ZIP of JPEG crops (`GET /{title_id}/crop-previews`), cut on the server from the stored scans at their stored resolution, with the geometry of `crop_documents()` in cropilot-utils. Files are named `<scan>_page<N>.jpg`. The editor's ⋮ menu downloads the open scan's crops as separate JPEGs.
 - Web upload: progress per title ("Nahrávání x/y"), a warning before leaving the page mid-upload, and retries of failed scan uploads.
 
@@ -10,6 +14,12 @@
 - Page order of downloaded crops on rotated scans: the pages of a scan are now ordered left to right as the scan is displayed. Crops are stored in the unrotated frame, so on a scan turned 90° the two pages of a spread have nearly the same `xc` and sorting by it put the right page first for about half of the spreads (`_page1` / `_page2` swapped in cropilot-utils and the desktop uploaders). Affects `/scans`, `/integration/.../coordinates` and the crop download; stored data is unchanged, re-download after deploy.
 - Relative dates ("dnes", "včera", …) count calendar days: a title from yesterday afternoon no longer shows "dnes" the next morning.
 - A title uploaded through the web could stay in "Založena" when the page was reloaded during the upload (`/process` was never called).
+- Statistics page: the "Nejpoužívanější zkratky" chart was ordered by total actions, not by keyboard use; the aggregate "Podíl klávesnice" tile and column compared single key presses with single mouse drags and are gone (the per-action table stays); the "Dokončené" / "Na přetrénování" tiles are hidden when the integration states are not used.
+
+## Deployment
+
+- No new env vars, no migration, nothing to run. The API creates the `events_title_ts` index on start.
+- The time statistics fill in on their own: the first nightly `maintenance` run folds every event still within the TTL into `work_stats`, and machine-time phases exist for titles processed after the deploy. The anomaly statistics count only scans saved after this version (older saved scans are left out, not guessed). `app.scripts.work_stats_rollup` and `app.scripts.backfill_review_stats` exist only to do either sooner by hand.
 
 # 1.2.7 - 2026-10-07
 

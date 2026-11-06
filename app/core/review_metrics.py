@@ -9,6 +9,8 @@ reported separately as ``angle_delta``.
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from bson import ObjectId
+
 from app.db.schemas.title import Page, ReviewStats, Title
 
 # A matched pair counts as "changed" when any of these thresholds is exceeded.
@@ -109,6 +111,19 @@ def scan_delta(predicted: list[Page], edited: list[Page]) -> ScanDelta:
         ):
             d.changed = True
     return d
+
+
+def scan_changes(title: Title) -> dict[ObjectId, bool]:
+    """Per-scan "geometry really changed" flags for every saved scan.
+
+    Scans without user edits are skipped (their stored ``changed`` stays
+    ``None``). Uses the same predicate as ``ReviewStats.scans_changed``.
+    """
+    return {
+        scan.id: scan_delta(scan.predicted_pages, scan.user_edited_pages).changed
+        for scan in title.scans
+        if scan.user_edited_pages is not None
+    }
 
 
 def compute_review_stats(title: Title, now: datetime | None = None) -> ReviewStats:

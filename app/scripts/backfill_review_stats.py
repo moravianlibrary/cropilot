@@ -4,9 +4,11 @@ Usage:
     uv run --env-file .env -m app.scripts.backfill_review_stats [--dry-run]
         [--force] [--approximate-timestamps]
 
-Idempotent: without ``--force`` only titles lacking ``review_stats`` are
-touched, so re-running after a partial run is safe. ``--force`` recomputes
-everything (e.g. after a change to the metric definition).
+Idempotent: without ``--force`` only titles lacking ``review_stats`` or the
+per-scan ``changed`` flag (added in 1.2.8) are touched, so re-running after a
+partial run is safe. ``--force`` recomputes everything (e.g. after a change
+to the metric definition). Optional: the anomaly statistics simply leave
+scans without the flag out, so nothing needs to be run after a deploy.
 
 ``--approximate-timestamps`` (opt-in) fills ``completed_at`` / ``user_approved_at``
 from ``modified_at`` for titles already in a terminal / approved state. This is
@@ -19,9 +21,9 @@ import argparse
 import logging
 
 import certifi
-from pymongo import MongoClient
+from pymongo import MongoClient, UpdateOne
 
-from app.core.review_metrics import compute_review_stats
+from app.core.review_metrics import compute_review_stats, scan_changes
 from app.db.schemas.title import TaskState, Title
 from app.deps import settings_db
 
@@ -37,7 +39,16 @@ def connect():
 def backfill(db, dry_run: bool, force: bool, approximate_timestamps: bool) -> dict:
     query: dict = {"scans.user_edited_pages": {"$ne": None}}
     if not force:
-        query["review_stats"] = {"$exists": False}
+        # Also pick up titles that have review_stats but predate the per-scan
+        # ``changed`` flag.
+        query["$or"] = [
+            {"review_stats": {"$exists": False}},
+            {
+                "scans": {
+                    "$elemMatch": {"user_edited_pages": {"$ne": None}, "changed": None}
+                }
+            },
+        ]
 
     stats = {"scanned": 0, "updated": 0, "timestamps": 0, "failed": 0}
     for doc in db.titles.find(query):
@@ -51,6 +62,7 @@ def backfill(db, dry_run: bool, force: bool, approximate_timestamps: bool) -> di
             continue
 
         update: dict = {"review_stats": review.model_dump()}
+        changes = scan_changes(title)
         if approximate_timestamps:
             if title.state in (TaskState.completed, TaskState.retrain):
                 if title.completed_at is None:
@@ -71,7 +83,17 @@ def backfill(db, dry_run: bool, force: bool, approximate_timestamps: bool) -> di
             f"mean IoU {review.mean_iou}"
         )
         if not dry_run:
-            db.titles.update_one({"_id": title.id}, {"$set": update})
+            db.titles.bulk_write(
+                [UpdateOne({"_id": title.id}, {"$set": update})]
+                + [
+                    UpdateOne(
+                        {"_id": title.id, "scans._id": scan_id},
+                        {"$set": {"scans.$.changed": changed}},
+                    )
+                    for scan_id, changed in changes.items()
+                ],
+                ordered=False,
+            )
         stats["updated"] += 1
     return stats
 

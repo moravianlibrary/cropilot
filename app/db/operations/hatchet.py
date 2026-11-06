@@ -14,6 +14,9 @@ def db_update_task_state(title_id: str, new_state: TaskState, db):
         raise ValueError(f"Invalid title id: {title_id}")
     now = datetime.now()
     update = {"state": new_state, "modified_at": now}
+    if new_state == TaskState.in_progress:
+        # End of the queue phase / start of processing (time statistics).
+        update["started_at"] = now
     if new_state == TaskState.ready:
         # Start of the review window (used for turnaround statistics).
         update["ready_at"] = now

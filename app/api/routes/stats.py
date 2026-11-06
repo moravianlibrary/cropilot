@@ -92,6 +92,18 @@ async def get_editor_usage(
 
 
 @limiter.limit("60/minute")
+@router.get("/time")
+async def get_time(
+    request: Request,
+    f: Annotated[StatsFilter, Depends(stats_filter)],
+    group_by: GroupBy = "group",
+    db=Depends(get_db),
+):
+    """Machine vs. human time per title phase and per scan, per group / model / month."""
+    return _envelope(f, group_by, await ops.time_stats(f, group_by, db))
+
+
+@limiter.limit("60/minute")
 @router.get("/settings")
 async def get_settings(
     request: Request,

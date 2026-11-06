@@ -103,3 +103,30 @@ def test_compute_review_stats_without_edits_has_no_means():
     assert stats.mean_iou is None
     assert stats.mean_center_shift is None
     assert stats.crop_model is None
+
+
+def test_scan_changes_flags_only_saved_scans():
+    from app.core.review_metrics import scan_changes
+    from app.db.schemas.title import Page, Scan, Title
+
+    same = Page(xc=0.5, yc=0.5, width=0.4, height=0.6)
+    moved = Page(xc=0.6, yc=0.5, width=0.4, height=0.6)
+    unsaved = Scan(filename="a.jpg", scan_name="a", predicted_pages=[same])
+    kept = Scan(
+        filename="b.jpg",
+        scan_name="b",
+        predicted_pages=[same],
+        user_edited_pages=[same],
+    )
+    edited = Scan(
+        filename="c.jpg",
+        scan_name="c",
+        predicted_pages=[same],
+        user_edited_pages=[moved],
+    )
+    title = Title(scans=[unsaved, kept, edited])
+
+    changes = scan_changes(title)
+
+    assert changes == {kept.id: False, edited.id: True}
+    assert unsaved.id not in changes

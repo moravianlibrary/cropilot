@@ -198,8 +198,26 @@ async def overview(f: StatsFilter, db) -> dict:
         )
         return n * HEARTBEAT_SECONDS
 
-    states, scan_counts, users, sess, time_s = await asyncio.gather(
-        by_state(), scans(), active_users(), sessions(), editor_time()
+    async def editor_active_time():
+        # Heartbeats flagged active (input within the last minute); the plain
+        # count above also includes tabs left open with nobody at them.
+        # Heartbeats without the flag (older frontend builds) count as active.
+        n = await db.usage_events.count_documents(
+            {
+                **ematch,
+                "type": UsageEventType.editor_heartbeat.value,
+                "payload.active": {"$ne": False},
+            }
+        )
+        return n * HEARTBEAT_SECONDS
+
+    states, scan_counts, users, sess, time_s, active_s = await asyncio.gather(
+        by_state(),
+        scans(),
+        active_users(),
+        sessions(),
+        editor_time(),
+        editor_active_time(),
     )
     return {
         "titles_by_state": states,
@@ -207,6 +225,7 @@ async def overview(f: StatsFilter, db) -> dict:
         "active_users": users,
         "sessions": sess,
         "editor_time_s": time_s,
+        "editor_active_time_s": active_s,
     }
 
 
@@ -272,8 +291,14 @@ async def review_quality(f: StatsFilter, group_by: GroupBy, db) -> list[dict]:
 
 
 async def anomalies(f: StatsFilter, group_by: GroupBy | None, db) -> list[dict]:
-    """How often flagged scans were actually edited (precision) and vice versa."""
-    edited = {"$ne": ["$scans.user_edited_pages", None]}
+    """How often flagged scans were really changed (precision) and vice versa.
+
+    "Changed" is the per-scan ``changed`` flag stored on save (geometry differs
+    from the prediction). Scans saved before that flag existed (edits present,
+    flag missing) are left out rather than guessed, so the figures are pure
+    from the first day; they drop out of the window on their own.
+    """
+    edited = {"$eq": ["$scans.changed", True]}
     pipeline = [
         {
             "$match": {
@@ -290,6 +315,15 @@ async def anomalies(f: StatsFilter, group_by: GroupBy | None, db) -> list[dict]:
         },
         {"$project": {"key": _key_expr(group_by, "modified_at"), "scans": 1}},
         {"$unwind": "$scans"},
+        # Saved before the per-scan flag existed: unknown, not "unchanged".
+        {
+            "$match": {
+                "$or": [
+                    {"scans.user_edited_pages": None},
+                    {"scans.changed": {"$ne": None}},
+                ]
+            }
+        },
         {
             "$project": {
                 "key": 1,
@@ -394,6 +428,26 @@ async def editor_usage(
                 "group_id": {"$first": "$group_id"},
                 "first_ts": {"$min": "$ts"},
                 "heartbeats": {"$sum": is_type(UsageEventType.editor_heartbeat)},
+                "active_heartbeats": {
+                    "$sum": {
+                        "$cond": [
+                            {
+                                "$and": [
+                                    {
+                                        "$eq": [
+                                            "$type",
+                                            UsageEventType.editor_heartbeat.value,
+                                        ]
+                                    },
+                                    # Missing flag (older frontend) = active.
+                                    {"$ne": ["$payload.active", False]},
+                                ]
+                            },
+                            1,
+                            0,
+                        ]
+                    }
+                },
                 "saves": {"$sum": is_type(UsageEventType.save)},
                 "shortcuts": {"$sum": is_type(UsageEventType.shortcut)},
                 "mouse": {"$sum": is_type(UsageEventType.mouse_action)},
@@ -402,7 +456,8 @@ async def editor_usage(
         },
         {
             "$addFields": {
-                "duration_s": {"$multiply": ["$heartbeats", HEARTBEAT_SECONDS]}
+                "duration_s": {"$multiply": ["$heartbeats", HEARTBEAT_SECONDS]},
+                "active_s": {"$multiply": ["$active_heartbeats", HEARTBEAT_SECONDS]},
             }
         },
         {
@@ -411,6 +466,8 @@ async def editor_usage(
                 "sessions": {"$sum": 1},
                 "total_duration_s": {"$sum": "$duration_s"},
                 "mean_duration_s": {"$avg": "$duration_s"},
+                "total_active_s": {"$sum": "$active_s"},
+                "mean_active_s": {"$avg": "$active_s"},
                 "saves": {"$sum": "$saves"},
                 "shortcuts": {"$sum": "$shortcuts"},
                 "mouse_actions": {"$sum": "$mouse"},
@@ -514,6 +571,119 @@ async def editor_usage(
         s["page_placements"] = placements_by_key.get(k, {})
 
     return _round_floats(await _resolve_keys(sessions, group_by, db))
+
+
+def _seconds_between(start: str, end: str) -> dict:
+    """``end - start`` in seconds, or null when either timestamp is missing or
+    the order is inverted (e.g. a title re-run after it was already opened)."""
+    diff = {"$dateDiff": {"startDate": start, "endDate": end, "unit": "second"}}
+    return {
+        "$cond": [
+            {"$and": [start, end, {"$gte": [end, start]}]},
+            diff,
+            None,
+        ]
+    }
+
+
+def _median(expr) -> dict:
+    # Requires MongoDB >= 7.0 (deploy pins 8.2), same as review_quality.
+    return {"$median": {"input": expr, "method": "approximate"}}
+
+
+async def time_stats(f: StatsFilter, group_by: GroupBy | None, db) -> list[dict]:
+    """Machine and human time per title phase, per key.
+
+    Phases (all per title, medians over titles that have both timestamps):
+    queue = scheduled_at -> started_at, processing = started_at -> ready_at,
+    wait_review = ready_at -> first editor open, review_active = active editor
+    time (``work_stats``, rolled up nightly), lead = created_at -> first save,
+    after_save = first save -> completed_at (integration instances only).
+    Per-scan figures are ratios of sums over the titles that have the phase.
+    """
+    pipeline = [
+        {"$match": f.title_match()},
+        {
+            "$project": {
+                "key": _key_expr(group_by, "modified_at"),
+                "scans_n": {"$size": "$scans"},
+                "scans_changed": {"$ifNull": ["$review_stats.scans_changed", 0]},
+                "queue_s": _seconds_between("$scheduled_at", "$started_at"),
+                "processing_s": _seconds_between("$started_at", "$ready_at"),
+                "wait_review_s": _seconds_between(
+                    "$ready_at", "$work_stats.first_opened_at"
+                ),
+                # $ifNull turns a missing path (no work_stats) into null so the
+                # "$ne null" tests in $group below exclude it.
+                "review_active_s": {"$ifNull": ["$work_stats.active_s", None]},
+                "review_visible_s": {"$ifNull": ["$work_stats.visible_s", None]},
+                "sessions": {"$ifNull": ["$work_stats.sessions", 0]},
+                "lead_s": _seconds_between("$created_at", "$user_approved_at"),
+                "after_save_s": _seconds_between("$user_approved_at", "$completed_at"),
+            }
+        },
+        {
+            "$group": {
+                "_id": "$key",
+                "n_titles": {"$sum": 1},
+                "scans_total": {"$sum": "$scans_n"},
+                "scans_changed": {"$sum": "$scans_changed"},
+                # Machine side: only titles whose processing phase is known.
+                "titles_with_machine": {
+                    "$sum": {"$cond": [{"$ne": ["$processing_s", None]}, 1, 0]}
+                },
+                "machine_scans": {
+                    "$sum": {"$cond": [{"$ne": ["$processing_s", None]}, "$scans_n", 0]}
+                },
+                "machine_total_s": {"$sum": "$processing_s"},
+                # Human side: only titles with rolled-up editor time.
+                "titles_with_review": {
+                    "$sum": {"$cond": [{"$ne": ["$review_active_s", None]}, 1, 0]}
+                },
+                "reviewed_scans": {
+                    "$sum": {
+                        "$cond": [
+                            {"$ne": ["$review_active_s", None]},
+                            "$scans_n",
+                            0,
+                        ]
+                    }
+                },
+                "reviewed_scans_changed": {
+                    "$sum": {
+                        "$cond": [
+                            {"$ne": ["$review_active_s", None]},
+                            "$scans_changed",
+                            0,
+                        ]
+                    }
+                },
+                "review_active_total_s": {"$sum": "$review_active_s"},
+                "review_visible_total_s": {"$sum": "$review_visible_s"},
+                "sessions": {"$sum": "$sessions"},
+                "median_queue_s": _median("$queue_s"),
+                "median_processing_s": _median("$processing_s"),
+                "median_wait_review_s": _median("$wait_review_s"),
+                "median_review_active_s": _median("$review_active_s"),
+                "median_lead_s": _median("$lead_s"),
+                "median_after_save_s": _median("$after_save_s"),
+            }
+        },
+        {
+            "$addFields": {
+                "machine_s_per_scan": _div("$machine_total_s", "$machine_scans"),
+                "review_s_per_scan": _div("$review_active_total_s", "$reviewed_scans"),
+                "review_s_per_changed_scan": _div(
+                    "$review_active_total_s", "$reviewed_scans_changed"
+                ),
+                "human_machine_ratio": _div(
+                    "$review_active_total_s", "$machine_total_s"
+                ),
+            }
+        },
+    ]
+    rows = await _aggregate(db.titles, pipeline)
+    return _round_floats(await _resolve_keys(rows, group_by, db))
 
 
 async def settings_distribution(group_id: ObjectId | None, db) -> dict:

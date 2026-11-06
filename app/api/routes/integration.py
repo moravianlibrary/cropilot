@@ -97,7 +97,7 @@ async def create_title(group_id: str, title_data: TitleCreate, db=Depends(get_db
 
     await db.titles.update_one(
         {"external_id": doc.external_id},
-        {"$set": {"state": TaskState.scheduled}},
+        {"$set": {"state": TaskState.scheduled, "scheduled_at": datetime.now()}},
     )
 
     logger.info(f"Scheduled workflow for title {doc.external_id} (id: {doc.id})")

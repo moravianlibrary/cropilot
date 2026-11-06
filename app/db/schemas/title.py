@@ -65,6 +65,11 @@ class Scan(BaseModelWithId):
     predicted_pages: list[Page] = Field(default_factory=list)
     user_edited_pages: list[Page] | None = None
     orientation: Literal[0, 90, 180, 270] = 0
+    # Whether the saved geometry really differs from the prediction (see
+    # ``review_metrics.scan_delta``). ``None`` until the scan is saved; saving
+    # without touching a scan stores ``False``. Lets the anomaly statistics
+    # measure flags against real corrections instead of mere saves.
+    changed: bool | None = None
 
 
 class ScanUpdate(BaseModelWithId):
@@ -121,6 +126,21 @@ class ReviewStats(BaseModel):
     computed_at: datetime = Field(default_factory=datetime.now)
 
 
+class WorkStats(BaseModel):
+    """Human effort spent on one title in the editor.
+
+    Rolled up incrementally from ``usage_events`` by the nightly maintenance
+    job (``app.db.operations.work_stats``), so it survives the events TTL.
+    """
+
+    active_s: int = 0  # heartbeats with ``active: true`` x HEARTBEAT_SECONDS
+    visible_s: int = 0  # all heartbeats x HEARTBEAT_SECONDS
+    sessions: int = 0  # editor_open events
+    first_opened_at: datetime | None = None
+    last_activity_at: datetime | None = None
+    computed_at: datetime = Field(default_factory=datetime.now)
+
+
 class Title(BaseModelWithId):
     external_id: str | None = None
     filelist: list[str] = Field(default_factory=list)
@@ -132,11 +152,19 @@ class Title(BaseModelWithId):
     state: TaskState = Field(default=TaskState.new)
     scans: list[Scan] = Field(default_factory=list)
 
-    # Review lifecycle timestamps (None until the transition happens).
+    # Lifecycle timestamps (None until the transition happens). Together they
+    # split a title's life into phases for the time statistics:
+    # queue = scheduled_at -> started_at, processing = started_at -> ready_at,
+    # waiting for review = ready_at -> work_stats.first_opened_at,
+    # lead time = created_at -> user_approved_at,
+    # after save = user_approved_at -> completed_at.
+    scheduled_at: datetime | None = None  # workflow scheduled
+    started_at: datetime | None = None  # worker picked the title up
     ready_at: datetime | None = None  # worker finished predictions
     user_approved_at: datetime | None = None  # first user save
     completed_at: datetime | None = None  # integration marked completed/retrain
     review_stats: ReviewStats | None = None
+    work_stats: WorkStats | None = None
 
     group_id: ObjectIdField | None = None
 
