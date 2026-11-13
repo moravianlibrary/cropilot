@@ -15,6 +15,11 @@
 - Relative dates ("dnes", "včera", …) count calendar days: a title from yesterday afternoon no longer shows "dnes" the next morning.
 - A title uploaded through the web could stay in "Založena" when the page was reloaded during the upload (`/process` was never called).
 - Statistics page: the "Nejpoužívanější zkratky" chart was ordered by total actions, not by keyboard use; the aggregate "Podíl klávesnice" tile and column compared single key presses with single mouse drags and are gone (the per-action table stays); the "Dokončené" / "Na přetrénování" tiles are hidden when the integration states are not used.
+- Creating a title through the integration API no longer leaves an orphan when linking it to the group fails: `link_titles_to_group_bulk` raises when the title or the group is not found (previously ignored) and the route deletes the freshly inserted title, like the web upload route. Titles get their `group_id` before insert.
+
+## Changed
+
+- Editor: the default crop outline is **Tenký** (was Střední). Users who already picked an outline keep it; the new default applies to new users and to "Obnovit výchozí".
 
 ## Deployment
 
