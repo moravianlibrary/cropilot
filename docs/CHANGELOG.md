@@ -2,7 +2,7 @@
 
 ## Added
 
-- **Time statistics**: Improved statistics page readibility, started tracking median time of each phase (queue, processing, waiting for review, review).
+- **Time statistics**: Improved statistics page readability, started tracking median time of each phase (queue, processing, waiting for review, review).
 - **Crop download**: whole title as a ZIP of JPEG crops (`GET /{title_id}/crop-previews`) from the title detail and the editor menu; the open scan's crops as separate JPEGs.
 - Web upload UX improvement: per-title progress, a warning before leaving mid-upload, retries of failed scan uploads.
 
